@@ -1,0 +1,22 @@
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Python bytecode and virtual environment
+__pycache__/
+*.py[cod]
+*.class
+venv/
+.venv/
+env/
+
+# DhanvantariVoice generated runtime data
+backend/app/data/audio_cache/*.wav
+backend/app/data/pdf_prescriptions/*.pdf
+
+# Node / Frontend build output (if root gitignore)
+frontend/node_modules/
+frontend/dist/
+frontend/build/

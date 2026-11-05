@@ -1,38 +1,79 @@
+# backend/app/utils/drug_matcher.py
 import json
+import logging
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Dict, Any, List, Optional
 from rapidfuzz import process, fuzz
 
-MEDICINES_FILE = Path(__file__).parent.parent / "data" / "medicines.json"
+logger = logging.getLogger("dhanvantari.drug_matcher")
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_PATH = BASE_DIR / "data" / "medicines.json"
 
 class DrugMatcher:
-    def __init__(self):
-        self.catalog = self._load_catalog()
+    def __init__(self, formulary_path: Path = DATA_PATH):
+        self.formulary: List[str] = []
+        self._load_formulary(formulary_path)
 
-    def _load_catalog(self) -> list[str]:
-        if not MEDICINES_FILE.exists():
-            # Seed default fallback catalog
-            return [
-                "Paracetamol 650mg", "Paracetamol 500mg", "Amoxicillin 500mg",
-                "Azithromycin 500mg", "Pantoprazole 40mg", "Cetirizine 10mg",
-                "Metformin 500mg", "Ibuprofen 400mg", "Telmisartan 40mg"
+    def _load_formulary(self, path: Path) -> None:
+        if not path.exists():
+            logger.warning(f"Formulary file not found at {path}. Using internal fallback dataset.")
+            self.formulary = [
+                "Paracetamol 650mg",
+                "Paracetamol 500mg",
+                "Amoxicillin 500mg",
+                "Amoxicillin and Potassium Clavulanate 625mg",
+                "Azithromycin 500mg",
+                "Pantoprazole 40mg",
+                "Cetirizine 10mg",
+                "Metformin 500mg",
+                "Ibuprofen 400mg",
+                "Telmisartan 40mg",
+                "Dolo 650mg",
+                "Augmentin 625 Duo"
             ]
-        with open(MEDICINES_FILE, "r") as f:
-            return json.load(f)
+            return
 
-    def match(self, candidate_name: str, threshold: float = 75.0) -> Tuple[Optional[str], float]:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                self.formulary = json.load(f)
+            logger.info(f"Loaded {len(self.formulary)} medicines into memory.")
+        except Exception as exc:
+            logger.error(f"Failed to load formulary from {path}: {exc}")
+            self.formulary = []
+
+    def verify_medication(self, query: str, threshold: float = 70.0) -> Dict[str, Any]:
         """
-        Matches extracted drug names against Indian generic/brand registry.
+        Fuzzy matches extracted drug text against the formulary.
+        Returns the matched name, confidence score (0-100), and review requirement flag.
         """
+        if not query or not self.formulary:
+            return {
+                "matched_name": query,
+                "confidence_score": 0.0,
+                "requires_review": True
+            }
+
+        # Token set ratio handles varied word orders e.g. "Paracetamol 650" vs "650mg Paracetamol"
         match_result = process.extractOne(
-            candidate_name, 
-            self.catalog, 
-            scorer=fuzz.token_sort_ratio
+            query, 
+            self.formulary, 
+            scorer=fuzz.token_set_ratio
         )
+
         if match_result:
             matched_name, score, _ = match_result
-            if score >= threshold:
-                return matched_name, score
-        return None, 0.0
+            requires_review = score < threshold
+            return {
+                "matched_name": matched_name if score >= threshold else query,
+                "confidence_score": round(float(score), 2),
+                "requires_review": requires_review
+            }
+
+        return {
+            "matched_name": query,
+            "confidence_score": 0.0,
+            "requires_review": True
+        }
 
 drug_matcher = DrugMatcher()
