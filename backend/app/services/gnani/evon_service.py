@@ -1,159 +1,121 @@
-# backend/app/services/gnani_evon.py
+# backend/app/services/gnani/evon_service.py
 import os
 import json
 import logging
-from typing import List, Optional
-import httpx
-from pydantic import BaseModel, Field, field_validator
+from typing import Optional
+from google import genai
+from google.genai import types
+
+from app.schemas.prescription import PrescriptionExtractionResponse
 from app.utils.drug_matcher import drug_matcher
 
 logger = logging.getLogger("dhanvantari.evon")
 
-GNANI_EVON_URL = os.getenv("GNANI_EVON_URL", "https://api.gnani.ai/v1/evon")
-GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-class MedicationItem(BaseModel):
-    drug_name: str = Field(..., description="Medicine brand/generic name")
-    dosage: str = Field(..., description="Dosage quantity (e.g. 1 tablet, 5ml)")
-    frequency: str = Field(..., description="Frequency in OPD notation e.g. 1-1-1")
-    timing: str = Field(..., description="e.g. After meals, Before breakfast")
-    duration: str = Field(..., description="e.g. 3 days, 5 days")
-    verified_match: Optional[str] = None
-    confidence_score: float = 1.0
-    requires_review: bool = False
+CLINICAL_EXTRACTION_PROMPT = """
+You are an expert Clinical AI Scribe operating in a high-volume Indian Outpatient Department (OPD).
+Analyze the doctor-patient consultation transcript (which may be in code-mixed Hinglish/English) and extract:
+1. Patient name and chief clinical complaints.
+2. Clinical provisional diagnosis.
+3. Structured prescription items (drug name, dosage, frequency, timing relative to meals, duration).
+4. General medical/dietary advice.
 
-    @field_validator("frequency")
-    @classmethod
-    def normalize_frequency(cls, v: str) -> str:
-        val = v.lower().strip()
-        if any(w in val for w in ["teen", "thrice", "three times", "1-1-1"]):
-            return "1 - 1 - 1"
-        if any(w in val for w in ["subah-shaam", "twice", "two times", "subah aur shaam", "1-0-1"]):
-            return "1 - 0 - 1"
-        if any(w in val for w in ["ek baar", "once", "0-0-1", "night"]):
-            return "0 - 0 - 1"
-        return v
-
-class PatientInfo(BaseModel):
-    name: str = "Unknown"
-    chief_complaints: List[str] = Field(default_factory=list)
-
-class ClinicalFindings(BaseModel):
-    diagnosis: str = "Under Evaluation"
-
-class PrescriptionExtractionResponse(BaseModel):
-    patient_info: PatientInfo
-    clinical_findings: ClinicalFindings
-    prescription: List[MedicationItem]
-    advice: Optional[str] = None
-
-EVON_CLINICAL_SYSTEM_PROMPT = """
-You are an expert Indian outpatient (OPD) clinical documentation AI.
-Extract structured clinical records from the doctor-patient consultation transcript.
-Strictly output a valid JSON object matching this schema:
-{
-  "patient_info": {
-    "name": "string",
-    "chief_complaints": ["string"]
-  },
-  "clinical_findings": {
-    "diagnosis": "string"
-  },
-  "prescription": [
-    {
-      "drug_name": "string",
-      "dosage": "string",
-      "frequency": "string",
-      "timing": "string",
-      "duration": "string"
-    }
-  ],
-  "advice": "string"
-}
-Return ONLY raw JSON. No markdown wraps, no extra text.
+Important Rules:
+- Frequencies must be normalized (e.g., 'teen baar' or 'thrice' -> '1 - 1 - 1', 'subah-shaam' or 'twice' -> '1 - 0 - 1', 'ek baar' -> '0 - 0 - 1').
+- Timing must be normalized ('khana khane ke baad' -> 'After meals', 'khali pet' -> 'Before food').
+- Return ONLY valid JSON adhering strictly to the schema.
 """
 
-class EvonService:
+class EvonClinicalService:
     def __init__(self):
-        self.api_url = GNANI_EVON_URL
-        self.api_key = GNANI_API_KEY
+        self.api_key = GEMINI_API_KEY
+        if self.api_key:
+            self.client = genai.Client(api_key=self.api_key)
+        else:
+            self.client = None
+            logger.warning("GEMINI_API_KEY not found in environment. Mock mode active.")
 
-    async def extract_prescription(self, transcript_text: str) -> PrescriptionExtractionResponse:
-        if not self.api_key or not transcript_text.strip():
-            logger.info("Operating in deterministic extraction mode.")
-            return self._mock_extraction(transcript_text)
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "evon-v3.3",
-            "messages": [
-                {"role": "system", "content": EVON_CLINICAL_SYSTEM_PROMPT},
-                {"role": "user", "content": transcript_text}
-            ],
-            "temperature": 0.1
-        }
+    async def extract_prescription(self, transcript: str) -> PrescriptionExtractionResponse:
+        """
+        Parses ambient consultation transcript into validated medical data contracts.
+        """
+        if not self.client or not transcript.strip():
+            logger.info("Using deterministic synthetic fallback for prescription extraction.")
+            return self._generate_mock_extraction(transcript)
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(self.api_url, headers=headers, json=payload)
-                response.raise_for_status()
-                raw_json = response.json()
-                raw_content = raw_json["choices"][0]["message"]["content"].strip()
+            response = self.client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=transcript,
+                config=types.GenerateContentConfig(
+                    system_instruction=CLINICAL_EXTRACTION_PROMPT,
+                    response_mime_type="application/json",
+                    response_schema=PrescriptionExtractionResponse,
+                    temperature=0.1
+                )
+            )
 
-                if raw_content.startswith("```"):
-                    raw_content = raw_content.split("```")[1]
-                    if raw_content.startswith("json"):
-                        raw_content = raw_content[4:]
+            parsed_data = PrescriptionExtractionResponse.model_validate_json(response.text)
+            
+            # Post-process: Cross-reference extracted medications against local Indian formulary
+            for item in parsed_data.prescription:
+                match_res = drug_matcher.verify_medication(item.drug_name)
+                item.verified_match = match_res["matched_name"]
+                item.confidence_score = match_res["confidence_score"]
+                item.requires_review = match_res["requires_review"]
 
-                parsed_dict = json.loads(raw_content)
-                result = PrescriptionExtractionResponse(**parsed_dict)
+            return parsed_data
+
         except Exception as exc:
-            logger.error(f"Evon extraction failed: {exc}. Using deterministic fallback.")
-            result = self._mock_extraction(transcript_text)
+            logger.error(f"Gemini clinical reasoning failed: {exc}. Reverting to fallback fixture.")
+            return self._generate_mock_extraction(transcript)
 
-        for item in result.prescription:
-            matched_name, confidence_score, needs_review = drug_matcher.match(item.drug_name)
-            item.verified_match = matched_name
-            item.confidence_score = round(confidence_score, 2)
-            item.requires_review = needs_review
-
-        return result
-
-    def _mock_extraction(self, transcript: str) -> PrescriptionExtractionResponse:
-        return PrescriptionExtractionResponse(
-            patient_info={
-                "name": "Ramesh",
-                "chief_complaints": ["High fever (101.5°F)", "Severe throat pain", "Difficulty swallowing"]
+    def _generate_mock_extraction(self, transcript: str) -> PrescriptionExtractionResponse:
+        """
+        Deterministic fallback adhering to the standard Ramesh OPD consultation fixture.
+        """
+        raw_prescription = [
+            {
+                "drug_name": "Paracetamol 650mg",
+                "dosage": "1 tablet",
+                "frequency": "1 - 1 - 1",
+                "timing": "After meals",
+                "duration": "3 days"
             },
-            clinical_findings={
+            {
+                "drug_name": "Amoxicillin 500mg",
+                "dosage": "1 capsule",
+                "frequency": "1 - 0 - 1",
+                "timing": "After meals",
+                "duration": "5 days"
+            }
+        ]
+
+        verified_prescription = []
+        for raw_med in raw_prescription:
+            match_res = drug_matcher.verify_medication(raw_med["drug_name"])
+            verified_prescription.append({
+                **raw_med,
+                "verified_match": match_res["matched_name"],
+                "confidence_score": match_res["confidence_score"],
+                "requires_review": match_res["requires_review"]
+            })
+
+        return PrescriptionExtractionResponse.model_validate({
+            "patient_info": {
+                "name": "Ramesh",
+                "chief_complaints": [
+                    "High fever (101.5°F)",
+                    "Severe throat pain",
+                    "Difficulty swallowing"
+                ]
+            },
+            "clinical_findings": {
                 "diagnosis": "Acute Throat Infection"
             },
-            prescription=[
-                {
-                    "drug_name": "Paracetamol 650mg",
-                    "dosage": "1 tablet",
-                    "frequency": "1 - 1 - 1",
-                    "timing": "After meals",
-                    "duration": "3 days",
-                    "verified_match": "Paracetamol 650mg",
-                    "confidence_score": 100.0,
-                    "requires_review": False
-                },
-                {
-                    "drug_name": "Amoxicillin 500mg",
-                    "dosage": "1 capsule",
-                    "frequency": "1 - 0 - 1",
-                    "timing": "After meals",
-                    "duration": "5 days",
-                    "verified_match": "Amoxicillin 500mg",
-                    "confidence_score": 100.0,
-                    "requires_review": False
-                }
-            ],
-            advice="Gargle with warm water twice daily"
-        )
+            "prescription": verified_prescription,
+            "advice": "Gargle with warm water twice daily"
+        })
 
-evon_service = EvonService()
+evon_service = EvonClinicalService()

@@ -1,30 +1,50 @@
 # backend/app/main.py
+import logging
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment configuration early
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import logging
+from fastapi.staticfiles import StaticFiles
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("dhanvantari.core")
+# Import REST and WebSocket routers
+from app.api.v1.endpoints.whatsapp import router as whatsapp_router
+from app.api.websockets.audio_stream import router as ws_router
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("dhanvantari.main")
 
 app = FastAPI(
-    title="DhanvantariVoice Core API",
+    title="DhanvantariVoice API",
     version="1.0.0",
-    description="Ambient AI prescription copilot"
+    description="Ambient Clinical AI Copilot Backend"
 )
 
-# 1. Allow all origins for dev/testing so WebSockets never get rejected with 403
+# Enable CORS for React frontend (localhost:3000 / localhost:5173)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,  # Set to False when using wildcard "*"
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 2. Directly import and mount the consultation websocket router
-from app.api.websockets.audio_stream import router as ws_router
-app.include_router(ws_router)
+# Mount static directory for synthesized audio playback
+BASE_DIR = Path(__file__).resolve().parent
+AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
+AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static/audio", StaticFiles(directory=str(AUDIO_CACHE_DIR)), name="static_audio")
+
+# Mount Routers
+app.include_router(whatsapp_router, prefix="/api/v1/whatsapp", tags=["WhatsApp"])
+app.include_router(ws_router, tags=["WebSocket Ingestion"])
 
 @app.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "DhanvantariVoice Backend"}
+def health_check():
+    return {"status": "healthy", "service": "DhanvantariVoice"}
