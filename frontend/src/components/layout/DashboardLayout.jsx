@@ -1,6 +1,7 @@
 import Navbar from './Navbar'
 import Sidebar, { BottomNav } from './Sidebar'
 
+// Common layout – Navbar + Sidebar + BottomNav
 export default function DashboardLayout({ children }) {
   return (
     <div className="min-h-screen pb-20 md:pb-0">
