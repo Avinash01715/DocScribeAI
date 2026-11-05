@@ -26,3 +26,16 @@ export const MOCK_PRESCRIPTION = {
   ],
   advice: 'Gargle with warm water twice daily',
 }
+
+// Day 5: backend ke /whatsapp/dispatch ka jawab (same shape). Day 6 mein asli jawab aayega
+export const MOCK_DISPATCH = {
+  status: 'success',
+  recipient: '919876543210',
+  whatsapp_deep_link: 'https://wa.me/919876543210',
+  voice_note: {
+    audio_url: '/demo/instructions.wav', // public/demo mein rakhi 4 second ki test beep
+    script: 'Ramesh ji, Paracetamol 650mg din mein teen baar khana khane ke baad lein 3 days tak.',
+    synthesized: false,
+  },
+  pdf_receipt: { file_path: 'demo.pdf', url: '/demo/prescription.pdf', status: 'generated' },
+}
