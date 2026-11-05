@@ -1,22 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Send } from 'lucide-react'
 import AudioRecorder from '../components/consultation/AudioRecorder'
 import LiveTranscript from '../components/consultation/LiveTranscript'
 import PrescriptionReview from '../components/prescription/PrescriptionReview'
+import WhatsAppModal from '../components/patient/WhatsAppModal'
 import useWebSocket from '../hooks/useWebSocket'
-import { MOCK_PRESCRIPTION } from '../data/mockData'
+import { MOCK_DISPATCH, MOCK_PRESCRIPTION } from '../data/mockData'
 import { withUids } from '../utils/prescription'
 
 let lineId = 0 // har line ki apni unique key
 
+// Day 5: nakli "dispatch". Day 6 mein ye function backend ke /whatsapp/dispatch ko call karega
+async function mockPrepare(phone) {
+  await new Promise((r) => setTimeout(r, 800)) // network jaisa intezaar
+  const script = MOCK_DISPATCH.voice_note.script
+  return {
+    ...MOCK_DISPATCH,
+    recipient: phone,
+    whatsapp_deep_link: `https://wa.me/${phone}?text=${encodeURIComponent(script)}`,
+  }
+}
+
 export default function Consultation() {
   const [lines, setLines] = useState([])
   const [recording, setRecording] = useState(false)
-  const [processing, setProcessing] = useState(false) // Stop ke baad "prescription ban rahi hai"
+  const [processing, setProcessing] = useState(false)
   const [prescription, setPrescription] = useState(null)
   const [approved, setApproved] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const timerRef = useRef(null)
-  const chunkNo = useRef(0) // chunk ginne ke liye
 
   const handleMessage = useCallback((msg) => {
     if (msg.type === 'TRANSCRIPT') {
@@ -26,10 +38,9 @@ export default function Consultation() {
 
   const ws = useWebSocket({ mock: true, onMessage: handleMessage })
 
-  // Page chhodte waqt pending timer band
   useEffect(() => () => clearTimeout(timerRef.current), [])
 
-  // Doctor ka koi bhi edit: approval hat jaata hai (naye badlav ko dobara check karna padega)
+  // Koi bhi edit: approval hat jaata hai
   const handleEdit = (next) => {
     setPrescription(next)
     setApproved(false)
@@ -41,29 +52,17 @@ export default function Consultation() {
         <AudioRecorder
           disabled={processing}
           onStart={() => {
-            chunkNo.current = 0 // <- naya: har recording mein ginti 0 se
             setLines([])
             setPrescription(null)
             setApproved(false)
             ws.connect()
             setRecording(true)
           }}
-          onChunk={async (blob) => {
-            // <- naya: poora onChunk replace
-            chunkNo.current += 1
-
-            // Chunk ke shuru ke 4 bytes hex mein (format pehchanne ke liye)
-            const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
-            const hex = Array.from(head, (b) => b.toString(16).padStart(2, '0')).join(' ')
-
-            console.log(`chunk #${chunkNo.current}: ${blob.size} bytes | ${blob.type} | starts: ${hex}`)
-            ws.send(blob) // pehle jaisa
-          }}
+          onChunk={(blob) => ws.send(blob)}
           onStop={() => {
             ws.disconnect()
             setRecording(false)
             setProcessing(true)
-            // Day 6 mein yahan backend ka STRUCTURED_CARDS aayega. Abhi 1.5s baad nakli prescription
             timerRef.current = setTimeout(() => {
               setPrescription(withUids(MOCK_PRESCRIPTION))
               setProcessing(false)
@@ -80,8 +79,21 @@ export default function Consultation() {
       )}
 
       {prescription && (
-        <PrescriptionReview data={prescription} onChange={handleEdit} approved={approved} onApprove={() => setApproved(true)} />
+        <>
+          <PrescriptionReview data={prescription} onChange={handleEdit} approved={approved} onApprove={() => setApproved(true)} />
+
+          <button
+            onClick={() => setShareOpen(true)}
+            disabled={!approved}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-brand px-6 py-3 font-medium text-ink hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Send size={18} /> Patient ko bhejein
+          </button>
+          {!approved && <p className="text-center text-xs text-slate-500">Bhejne se pehle prescription approve karna zaroori hai.</p>}
+        </>
       )}
+
+      <WhatsAppModal open={shareOpen} onClose={() => setShareOpen(false)} approved={approved} onPrepare={mockPrepare} />
     </div>
   )
 }
