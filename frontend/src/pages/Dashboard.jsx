@@ -1,35 +1,20 @@
-import { ArrowLeft, Mic, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { Mic, Plus } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import DashboardLayout from '../components/layout/DashboardLayout'
-import Consultation from './Consultation'
 
 const recent = [
   { id: '001', status: 'Prescription generated' },
   { id: '002', status: 'Pending review' },
 ]
 
+// Time ke hisaab se greeting
 function greeting() {
   const h = new Date().getHours()
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
 
 export default function Dashboard() {
-  // true hone par dashboard ki jagah consultation screen dikhti hai
-  const [started, setStarted] = useState(false)
-
-  if (started) {
-    return (
-      <DashboardLayout>
-        <button
-          onClick={() => setStarted(false)} // wapas jaate hi recorder hat jaata hai, mic band
-          className="mb-4 flex items-center gap-2 text-sm text-slate-400 hover:text-slate-100"
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to dashboard
-        </button>
-        <Consultation />
-      </DashboardLayout>
-    )
-  }
+  const navigate = useNavigate()
 
   return (
     <DashboardLayout>
@@ -39,6 +24,7 @@ export default function Dashboard() {
         <span className="hidden md:inline">Manage your patient consultations.</span>
       </p>
 
+      {/* Start consultation card */}
       <section className="mt-5 rounded-xl bg-brand-dark p-5">
         <Mic className="h-5 w-5 text-brand" />
         <h2 className="mt-3 text-xl font-semibold">
@@ -47,7 +33,7 @@ export default function Dashboard() {
         </h2>
         <p className="mt-2 text-sm text-slate-200">Record a doctor-patient conversation.</p>
         <button
-          onClick={() => setStarted(true)} // <- naya
+          onClick={() => navigate('/consultation')} // router se consultation page pe le jaao
           className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-brand py-2.5 font-medium text-ink hover:opacity-90"
         >
           <Plus className="hidden h-4 w-4 md:inline" />
