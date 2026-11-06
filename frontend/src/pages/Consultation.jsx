@@ -7,40 +7,54 @@ import LiveTranscript from '../components/consultation/LiveTranscript'
 import PrescriptionReview from '../components/prescription/PrescriptionReview'
 import WhatsAppModal from '../components/patient/WhatsAppModal'
 import useWebSocket from '../hooks/useWebSocket'
-import { MOCK_DISPATCH, MOCK_PRESCRIPTION } from '../data/mockData'
 import { withUids } from '../utils/prescription'
 
-let lineId = 0 // har line ki apni unique key
+let lineId = 0 // har line ki unique key
 
-// Day 5: nakli "dispatch". Day 6 mein ye function backend ke /whatsapp/dispatch ko call karega
-async function mockPrepare(phone) {
-  await new Promise((r) => setTimeout(r, 800)) // network jaisa intezaar
-  const script = MOCK_DISPATCH.voice_note.script
-  return {
-    ...MOCK_DISPATCH,
-    recipient: phone,
-    whatsapp_deep_link: `https://wa.me/${phone}?text=${encodeURIComponent(script)}`,
-  }
-}
+const WS_URL = 'ws://127.0.0.1:8000/ws/consultation'
+const API_BASE_URL = 'http://127.0.0.1:8000'
 
 export default function Consultation() {
   const navigate = useNavigate()
   const [lines, setLines] = useState([])
   const [recording, setRecording] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [statusText, setStatusText] = useState('')
   const [prescription, setPrescription] = useState(null)
   const [approved, setApproved] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const timerRef = useRef(null)
 
-  // Backend / mock se aayi transcript line handle karo
+  // Backend se aane wale real-time messages handle karo
   const handleMessage = useCallback((msg) => {
-    if (msg.type === 'TRANSCRIPT') {
-      setLines((prev) => [...prev, { id: ++lineId, speaker: msg.speaker, text: msg.text, is_final: true }])
+    if (msg.type === 'TRANSCRIPT' || msg.type === 'TRANSCRIPT_UPDATE') {
+      const text = msg.text || msg.interim || msg.transcript
+      if (text) {
+        setLines((prev) => [
+          ...prev,
+          {
+            id: ++lineId,
+            speaker: msg.speaker || 'Consultation',
+            text: text,
+            is_final: msg.is_final ?? true,
+          },
+        ])
+      }
+    } else if (msg.type === 'STATUS') {
+      setStatusText(msg.message || '')
+    } else if (msg.type === 'PRESCRIPTION_EXTRACTED') {
+      setPrescription(withUids(msg.data))
+      setProcessing(false)
+      setStatusText('')
+    } else if (msg.type === 'STRUCTURED_CARDS') {
+      setPrescription(withUids(msg.payload))
+      setProcessing(false)
+      setStatusText('')
     }
   }, [])
 
-  const ws = useWebSocket({ mock: true, onMessage: handleMessage })
+  // Live WebSocket (Day 6 Integration)
+  const ws = useWebSocket({ mock: false, onMessage: handleMessage })
 
   // Page chhodte waqt timer saaf karo
   useEffect(() => () => clearTimeout(timerRef.current), [])
@@ -49,6 +63,36 @@ export default function Consultation() {
   const handleEdit = (next) => {
     setPrescription(next)
     setApproved(false)
+  }
+
+  // Live WhatsApp Dispatch Call to Backend REST API
+  const handlePrepare = async (phone) => {
+    const cleanPhone = phone.replace(/\D/g, '')
+    const res = await fetch(`${API_BASE_URL}/api/v1/whatsapp/dispatch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone_number: cleanPhone,
+        prescription_data: prescription,
+      }),
+    })
+
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`Dispatch failed: ${errText || res.statusText}`)
+    }
+
+    const data = await res.json()
+
+    // Prefix backend host to relative paths so browser can access audio & PDF directly
+    if (data.voice_note?.audio_url?.startsWith('/')) {
+      data.voice_note.audio_url = `${API_BASE_URL}${data.voice_note.audio_url}`
+    }
+    if (data.pdf_receipt?.url?.startsWith('/')) {
+      data.pdf_receipt.url = `${API_BASE_URL}${data.pdf_receipt.url}`
+    }
+
+    return data
   }
 
   return (
@@ -69,19 +113,17 @@ export default function Consultation() {
               setLines([])
               setPrescription(null)
               setApproved(false)
-              ws.connect()
+              setStatusText('')
+              ws.connect(WS_URL)
               setRecording(true)
             }}
             onChunk={(blob) => ws.send(blob)}
             onStop={() => {
-              ws.disconnect()
               setRecording(false)
               setProcessing(true)
-              // 1.5 second baad mock prescription dikhao
-              timerRef.current = setTimeout(() => {
-                setPrescription(withUids(MOCK_PRESCRIPTION))
-                setProcessing(false)
-              }, 1500)
+              setStatusText('Analyzing consultation dialogue with Evon LLM…')
+              // Trigger backend extraction action
+              ws.send(JSON.stringify({ action: 'PROCESS' }))
             }}
           />
           <LiveTranscript lines={lines} status={ws.status} error={ws.error} isRecording={recording} />
@@ -89,7 +131,7 @@ export default function Consultation() {
 
         {processing && (
           <div className="flex items-center gap-3 rounded-xl bg-panel p-5 text-slate-300">
-            <Loader2 className="animate-spin text-brand" /> Prescription ban rahi hai…
+            <Loader2 className="animate-spin text-brand" /> {statusText || 'Prescription ban rahi hai…'}
           </div>
         )}
 
@@ -121,7 +163,7 @@ export default function Consultation() {
           open={shareOpen}
           onClose={() => setShareOpen(false)}
           approved={approved}
-          onPrepare={mockPrepare}
+          onPrepare={handlePrepare}
         />
       </div>
     </DashboardLayout>
