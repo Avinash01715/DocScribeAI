@@ -9,6 +9,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 PDF_OUTPUT_DIR = BASE_DIR / "data" / "pdf_prescriptions"
 PDF_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# -------------------------------------------------------------------------
+# PR Change: Safe string encoder converts Devanagari to Hinglish and sanitizes
+# characters to Latin-1, avoiding FPDF character encoding crashes.
+# -------------------------------------------------------------------------
 def safe_str(val) -> str:
     """Sanitizes text by converting Devanagari to Hinglish and encoding cleanly."""
     if val is None:
@@ -43,7 +47,10 @@ class ClinicalPrescriptionPDF(FPDF):
 def generate_prescription_pdf(data: PrescriptionExtractionResponse, doctor_name: str = "Dr. Sharma, MBBS, MD") -> str:
     pdf = ClinicalPrescriptionPDF(font_name="Helvetica")
     
-    # Check if Windows Arial font is available for full Unicode coverage
+    # -------------------------------------------------------------------------
+    # PR Change: Dynamic Windows font fallback (Arial TrueType) for full typography
+    # coverage, with graceful fallback to Helvetica if running on Linux/Docker.
+    # -------------------------------------------------------------------------
     arial_path = Path("C:/Windows/Fonts/Arial.ttf")
     arial_bold = Path("C:/Windows/Fonts/arialbd.ttf")
     arial_italic = Path("C:/Windows/Fonts/ariali.ttf")

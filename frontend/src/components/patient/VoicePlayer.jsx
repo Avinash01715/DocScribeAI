@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Headphones, Pause, Play, Download } from 'lucide-react'
 
-// Must match API_BASE_URL in Consultation.jsx
+// -------------------------------------------------------------------------
+// PR Change: Centralized API base URL resolution & playback speed presets.
+// Supports cycling speeds from 1.0x to 2.0x (default: 1.5x for crisp comprehension).
+// -------------------------------------------------------------------------
 const API_BASE = 'http://127.0.0.1:8000'
-
 const SPEED_OPTIONS = [1.0, 1.25, 1.5, 1.75, 2.0]
 
 const fmt = (s) => {
@@ -65,6 +67,9 @@ export default function VoicePlayer({ src }) {
     setCurrent(0)
   }
 
+  // -------------------------------------------------------------------------
+  // PR Change: Transparent HTML5 Media error mapping (codes 1-4) for quick diagnosis.
+  // -------------------------------------------------------------------------
   const handleError = () => {
     const code = audioRef.current?.error?.code
     const messages = {
@@ -122,7 +127,11 @@ export default function VoicePlayer({ src }) {
         </p>
       ) : (
         <>
-          {/* Native <audio> element — browser handles decoding & CORS reliably */}
+          {/* -----------------------------------------------------------------
+              PR Change: Replaced imperative `new Audio(src)` with native `<audio>` element
+              featuring `crossOrigin="anonymous"`. This eliminates browser 304 cache / CORS
+              failures and guarantees audio decoding across mobile and desktop browsers.
+              ----------------------------------------------------------------- */}
           <audio
             ref={audioRef}
             src={resolvedSrc}

@@ -36,6 +36,10 @@ class GnaniPrismaClient:
             return False
 
         try:
+            # -----------------------------------------------------------------
+            # PR Change: Configured Gnani Prisma v3 STT handshake headers.
+            # Compatible with Vachana AI endpoint (x-api-key-id, language_code, prisma-v3.0).
+            # -----------------------------------------------------------------
             headers = {
                 "x-api-key-id": self.api_key,
                 "language_code": self.lang_code,
@@ -77,6 +81,10 @@ class GnaniPrismaClient:
                         if msg_type == "transcript":
                             raw_text = (data.get("text") or data.get("transcript") or "").strip()
                             if raw_text:
+                                # -------------------------------------------------------------
+                                # PR Change: Convert Devanagari text into natural Hinglish (Roman script)
+                                # for seamless doctor readability on live consultation UI.
+                                # -------------------------------------------------------------
                                 hinglish_text = devanagari_to_hinglish(raw_text)
                                 yield {
                                     "is_final": data.get("is_final", True),
@@ -98,7 +106,10 @@ class GnaniPrismaClient:
         self._is_active = False
         if self._ws:
             try:
-                # Flush with 500ms silence so VAD finalizes pending utterance
+                # -------------------------------------------------------------
+                # PR Change: Flush upstream with 500ms PCM silence so Gnani VAD
+                # finalizes and delivers any pending spoken utterance before closing.
+                # -------------------------------------------------------------
                 await self._ws.send(b"\x00" * 16000)
                 await self._ws.close()
             except Exception:

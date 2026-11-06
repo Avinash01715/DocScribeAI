@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Mic, Pause, Play, Square } from 'lucide-react'
 
-// Downsample any audio stream sample rate (e.g. 44.1kHz or 48kHz) down to 16kHz
+// -------------------------------------------------------------------------
+// PR Change: Real-time Audio Processing Pipeline for Gnani Prisma STT:
+// 1. Downsamples hardware stream (44.1kHz / 48kHz) to standardized 16kHz.
+// 2. Encodes Float32 samples into 16-bit signed Linear PCM (little-endian).
+// -------------------------------------------------------------------------
 function downsampleTo16k(input, fromRate) {
   if (fromRate === 16000) return input
   const ratio = fromRate / 16000

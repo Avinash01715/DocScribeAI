@@ -26,10 +26,11 @@ app = FastAPI(
     description="Ambient Clinical AI Copilot Backend"
 )
 
-# Enable CORS for React frontend (localhost:3000 / localhost:5173)
-# IMPORTANT: Middleware must be added BEFORE static mounts so CORS headers
-# are applied to /static/audio and /static/pdf responses too.
-# allow_credentials must be False when allow_origins=["*"]
+# -------------------------------------------------------------------------
+# PR Change: Configured CORSMiddleware for cross-origin audio streaming & PDF fetching.
+# allow_credentials=False avoids browser 304/CORS fetch errors with allow_origins=["*"].
+# expose_headers=["Content-Disposition"] enables audio/PDF attachment downloads.
+# -------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

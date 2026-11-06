@@ -62,7 +62,11 @@ class EvonClinicalService:
 
             parsed_data = PrescriptionExtractionResponse.model_validate_json(response.text)
             
-            # Ensure all text entities are in Hinglish (Latin Roman script)
+            # -----------------------------------------------------------------
+            # PR Change: Enforce Hinglish (Latin/Roman script) normalization on all
+            # extracted clinical entities (Patient Name, Diagnosis, Complaints, Advice).
+            # Avoids Devanagari rendering issues in PDF generation and WhatsApp previews.
+            # -----------------------------------------------------------------
             parsed_data.patient_info.name = devanagari_to_hinglish(parsed_data.patient_info.name)
             parsed_data.clinical_findings.diagnosis = devanagari_to_hinglish(parsed_data.clinical_findings.diagnosis)
             parsed_data.patient_info.chief_complaints = [devanagari_to_hinglish(c) for c in parsed_data.patient_info.chief_complaints]

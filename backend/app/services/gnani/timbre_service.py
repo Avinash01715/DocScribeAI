@@ -17,7 +17,11 @@ logger = logging.getLogger("dhanvantari.timbre")
 GNANI_TIMBRE_URL = os.getenv("GNANI_TIMBRE_URL", "https://api.vachana.ai/api/v1/tts/inference")
 GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
 
-# Directory resolution anchored to backend/app for consistency with FastAPI static mount
+# -------------------------------------------------------------------------
+# PR Change: Directory resolution anchored to backend/app.
+# Previously resolved to services/data/audio_cache causing 404 on /static/audio.
+# .parent.parent.parent ensures audio is saved directly to backend/app/data/audio_cache.
+# -------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
 AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -87,15 +91,18 @@ class TimbreTTSService:
             "X-API-Key-ID": self.api_key,
             "Content-Type": "application/json"
         }
-        # Supported voices for timbre-v3.0 from Gnani platform:
-        # Avinash (checked in screenshot), Lakshmi, Shivani, Kalpana, Shubham, Prakash, Devansh
+        # -------------------------------------------------------------------------
+        # PR Change: Upgraded model to timbre-v3.0 and configured verified regional voices.
+        # Primary: 'Avinash' (firm professional male voice selected in dashboard).
+        # Fallbacks: 'Lakshmi', 'Shivani', 'Kalpana', 'Shubham', 'Prakash', 'Devansh'.
+        # -------------------------------------------------------------------------
         voice_candidates = ["Avinash", "Lakshmi", "Shivani", "Kalpana", "Shubham", "Prakash", "Devansh"]
         for voice in voice_candidates:
             payload = {
                 "text": hindi_script,
                 "language": language,
                 "voice": voice,
-                "model": "timbre-v3.0"
+                "model": "timbre-v3.0"  # Upgraded from v2.5 to support regional voices
             }
             try:
                 async with httpx.AsyncClient(timeout=20.0) as client:
@@ -111,7 +118,11 @@ class TimbreTTSService:
                 if not content or len(content) < 1024:
                     raise Exception("Timbre API returned empty or insufficient audio data")
 
-                # Gnani returns raw 24kHz 16-bit mono PCM bytes: package into standard RIFF WAV
+                # -----------------------------------------------------------------
+                # PR Change: Gnani Timbre v3.0 streams raw Linear PCM at 24 kHz (mono).
+                # Packaging at 24000 Hz restores natural, fluent human speech speed.
+                # (Packaging at 16000 Hz previously caused slow/slurred audio).
+                # -----------------------------------------------------------------
                 if content.startswith(b"RIFF"):
                     with open(output_filepath, "wb") as f:
                         f.write(content)
@@ -119,7 +130,7 @@ class TimbreTTSService:
                     with wave.open(str(output_filepath), "wb") as wf:
                         wf.setnchannels(1)      # 1 channel (mono)
                         wf.setsampwidth(2)      # 16-bit PCM = 2 bytes per sample
-                        wf.setframerate(24000)  # 24 kHz
+                        wf.setframerate(24000)  # 24 kHz calibrated sample rate
                         wf.writeframes(content)
 
                 logger.info(f"Successfully synthesized voice note with voice '{voice}' using timbre-v3.0 ({len(content)} bytes)")

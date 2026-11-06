@@ -118,7 +118,10 @@ async def consultation_audio_stream(websocket: WebSocket):
                     extracted_rx = await evon_service.extract_prescription(raw_text)
                     rx_payload = extracted_rx.model_dump()
 
-                    # Send both events for full compatibility across UI components
+                    # -------------------------------------------------------------
+                    # PR Change: Emit dual events (PRESCRIPTION_EXTRACTED and STRUCTURED_CARDS)
+                    # to ensure backward-and-forward compatibility across all UI views.
+                    # -------------------------------------------------------------
                     await websocket.send_json({
                         "type": "PRESCRIPTION_EXTRACTED",
                         "data": rx_payload

@@ -25,7 +25,10 @@ export default function Consultation() {
   const [shareOpen, setShareOpen] = useState(false)
   const timerRef = useRef(null)
 
-  // Backend se aane wale real-time messages handle karo
+  // -------------------------------------------------------------------------
+  // PR Change: Live WebSocket message handler for real-time STT streaming,
+  // interim transcript accumulation, and automated structured card extraction.
+  // -------------------------------------------------------------------------
   const handleMessage = useCallback((msg) => {
     if (msg.type === 'TRANSCRIPT' || msg.type === 'TRANSCRIPT_UPDATE') {
       const text = msg.text || msg.interim || msg.transcript
@@ -65,7 +68,10 @@ export default function Consultation() {
     setApproved(false)
   }
 
-  // Live WhatsApp Dispatch Call to Backend REST API
+  // -------------------------------------------------------------------------
+  // PR Change: Live WhatsApp Dispatch handler. POSTs verified prescription to backend
+  // REST API, resolving relative audio and PDF paths to absolute URLs for direct client access.
+  // -------------------------------------------------------------------------
   const handlePrepare = async (phone) => {
     const cleanPhone = phone.replace(/\D/g, '')
     const res = await fetch(`${API_BASE_URL}/api/v1/whatsapp/dispatch`, {
