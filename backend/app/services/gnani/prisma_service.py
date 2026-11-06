@@ -1,22 +1,25 @@
 # backend/app/services/gnani_prisma.py
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import json
 import asyncio
 import logging
 from typing import AsyncGenerator, Optional
 import websockets
 from websockets.asyncio.client import ClientConnection
+from app.utils.hinglish import devanagari_to_hinglish
 
 logger = logging.getLogger("dhanvantari.prisma")
 
-PRISMA_WS_URL = os.getenv("GNANI_PRISMA_URL", "wss://api.gnani.ai/v1/prisma/stream")
+PRISMA_WS_URL = os.getenv("GNANI_PRISMA_URL", "wss://api.vachana.ai/stt/v3/stream")
 GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
 GNANI_LANG_CODE = os.getenv("GNANI_STT_LANG", "hi-IN")  # Code-mixed Hindi/English default
 
 class GnaniPrismaClient:
     """
-    Manages upstream full-duplex WebSocket connection to Gnani Prisma STT.
-    Pipes 16kHz 16-bit mono PCM chunks and yields real-time transcript tokens.
+    Manages upstream full-duplex WebSocket connection to Gnani Prisma STT (Vachana AI).
+    Pipes 16kHz 16-bit mono PCM chunks and yields real-time transcript tokens in Hinglish.
     """
     def __init__(self, api_key: Optional[str] = None, endpoint_url: Optional[str] = None):
         self.api_key = api_key or GNANI_API_KEY
@@ -33,12 +36,16 @@ class GnaniPrismaClient:
             return False
 
         try:
+            # -----------------------------------------------------------------
+            # PR Change: Configured Gnani Prisma v3 STT handshake headers.
+            # Compatible with Vachana AI endpoint (x-api-key-id, language_code, prisma-v3.0).
+            # -----------------------------------------------------------------
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "X-Language-Code": self.lang_code,
-                "X-Audio-Encoding": "audio/l16;rate=16000;channels=1"
+                "x-api-key-id": self.api_key,
+                "language_code": self.lang_code,
+                "model": "prisma-v3.0"
             }
-            self._ws = await websockets.connect(self.endpoint_url, extra_headers=headers)
+            self._ws = await websockets.connect(self.endpoint_url, additional_headers=headers)
             self._is_active = True
             logger.info("Successfully connected upstream to Gnani Prisma STT WebSocket.")
             return True
@@ -49,7 +56,7 @@ class GnaniPrismaClient:
             return False
 
     async def send_audio_chunk(self, chunk: bytes) -> None:
-        """Pushes raw PCM binary audio chunk to the upstream STT engine."""
+        """Pushes raw 16kHz PCM binary audio chunk to the upstream STT engine."""
         if self._is_active and self._ws:
             try:
                 await self._ws.send(chunk)
@@ -59,7 +66,7 @@ class GnaniPrismaClient:
 
     async def receive_transcripts(self) -> AsyncGenerator[dict, None]:
         """
-        Listens to upstream responses from Prisma STT and yields normalized tokens.
+        Listens to upstream responses from Prisma STT and yields normalized tokens in Hinglish.
         Yields schema: {"is_final": bool, "text": str, "confidence": float}
         """
         if not self._is_active or not self._ws:
@@ -70,13 +77,23 @@ class GnaniPrismaClient:
                 if isinstance(raw_message, str):
                     try:
                         data = json.loads(raw_message)
-                        yield {
-                            "is_final": data.get("is_final", False),
-                            "text": data.get("transcript", "").strip(),
-                            "confidence": float(data.get("confidence", 1.0))
-                        }
+                        msg_type = data.get("type", "")
+                        if msg_type == "transcript":
+                            raw_text = (data.get("text") or data.get("transcript") or "").strip()
+                            if raw_text:
+                                # -------------------------------------------------------------
+                                # PR Change: Convert Devanagari text into natural Hinglish (Roman script)
+                                # for seamless doctor readability on live consultation UI.
+                                # -------------------------------------------------------------
+                                hinglish_text = devanagari_to_hinglish(raw_text)
+                                yield {
+                                    "is_final": data.get("is_final", True),
+                                    "text": hinglish_text,
+                                    "confidence": float(data.get("confidence", 1.0))
+                                }
                     except json.JSONDecodeError:
-                        yield {"is_final": False, "text": raw_message.strip(), "confidence": 1.0}
+                        raw_str = raw_message.strip()
+                        yield {"is_final": False, "text": devanagari_to_hinglish(raw_str), "confidence": 1.0}
         except websockets.exceptions.ConnectionClosed:
             logger.info("Upstream Prisma STT connection closed.")
         except Exception as exc:
@@ -89,8 +106,11 @@ class GnaniPrismaClient:
         self._is_active = False
         if self._ws:
             try:
-                # Signal end of stream frame to Gnani if required by protocol
-                await self._ws.send(json.dumps({"action": "EOS"}))
+                # -------------------------------------------------------------
+                # PR Change: Flush upstream with 500ms PCM silence so Gnani VAD
+                # finalizes and delivers any pending spoken utterance before closing.
+                # -------------------------------------------------------------
+                await self._ws.send(b"\x00" * 16000)
                 await self._ws.close()
             except Exception:
                 pass

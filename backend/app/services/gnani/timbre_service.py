@@ -1,6 +1,9 @@
 # backend/app/services/gnani/timbre_service.py
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import uuid
+import wave
 import logging
 from pathlib import Path
 from typing import Dict, Any
@@ -11,10 +14,14 @@ from app.schemas.prescription import PrescriptionExtractionResponse
 
 logger = logging.getLogger("dhanvantari.timbre")
 
-GNANI_TIMBRE_URL = os.getenv("GNANI_TIMBRE_URL", "https://api.gnani.ai/v1/tts")
+GNANI_TIMBRE_URL = os.getenv("GNANI_TIMBRE_URL", "https://api.vachana.ai/api/v1/tts/inference")
 GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
 
-# Directory resolution anchored up 3 levels to backend/app/data/audio_cache
+# -------------------------------------------------------------------------
+# PR Change: Directory resolution anchored to backend/app.
+# Previously resolved to services/data/audio_cache causing 404 on /static/audio.
+# .parent.parent.parent ensures audio is saved directly to backend/app/data/audio_cache.
+# -------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
 AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -56,13 +63,13 @@ class TimbreTTSService:
         return " ".join(phrases)
 
     async def generate_voice_note(
-        self, 
-        data: PrescriptionExtractionResponse, 
+        self,
+        data: PrescriptionExtractionResponse,
         language: str = "hi-IN"
     ) -> Dict[str, Any]:
         """
         Synthesizes vernacular audio instructions via Gnani Timbre TTS.
-        Falls back to a standard RIFF WAV buffer for offline testing without API credentials.
+        Packages raw Linear PCM into a standard, playable RIFF WAV file for browsers.
         """
         hindi_script = self.construct_hindi_narrative(data)
         file_id = f"rx_{uuid.uuid4().hex[:8]}.wav"
@@ -81,49 +88,81 @@ class TimbreTTSService:
             }
 
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "X-API-Key-ID": self.api_key,
             "Content-Type": "application/json"
         }
-        payload = {
-            "text": hindi_script,
-            "language": language,
-            "audio_format": "wav",
-            "voice_gender": "female",
-            "prosody": {"rate": "0.95", "pitch": "1.0"}
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(self.api_url, headers=headers, json=payload)
+        # -------------------------------------------------------------------------
+        # PR Change: Upgraded model to timbre-v3.0 and configured verified regional voices.
+        # Primary: 'Avinash' (firm professional male voice selected in dashboard).
+        # Fallbacks: 'Lakshmi', 'Shivani', 'Kalpana', 'Shubham', 'Prakash', 'Devansh'.
+        # -------------------------------------------------------------------------
+        voice_candidates = ["Avinash", "Lakshmi", "Shivani", "Kalpana", "Shubham", "Prakash", "Devansh"]
+        for voice in voice_candidates:
+            payload = {
+                "text": hindi_script,
+                "language": language,
+                "voice": voice,
+                "model": "timbre-v3.0"  # Upgraded from v2.5 to support regional voices
+            }
+            try:
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    response = await client.post(self.api_url, headers=headers, json=payload)
+                
+                # If API returns JSON (error message), treat as failure to try next voice
+                if "application/json" in response.headers.get("Content-Type", "").lower():
+                    raise Exception(f"Timbre API returned JSON: {response.text[:200]}")
+                
                 response.raise_for_status()
-                with open(output_filepath, "wb") as f:
-                    f.write(response.content)
+                content = response.content
+                # Guard against empty or too‑small payloads (unlikely to be valid audio)
+                if not content or len(content) < 1024:
+                    raise Exception("Timbre API returned empty or insufficient audio data")
 
-            return {
-                "file_name": file_id,
-                "audio_url": f"/static/audio/{file_id}",
-                "local_path": str(output_filepath),
-                "script": hindi_script,
-                "synthesized": True
-            }
-        except Exception as exc:
-            logger.error(f"Timbre TTS synthesis failed: {exc}. Using fallback WAV buffer.")
-            self._generate_silent_mock_wav(output_filepath)
-            return {
-                "file_name": file_id,
-                "audio_url": f"/static/audio/{file_id}",
-                "local_path": str(output_filepath),
-                "script": hindi_script,
-                "synthesized": False
-            }
+                # -----------------------------------------------------------------
+                # PR Change: Gnani Timbre v3.0 streams raw Linear PCM at 24 kHz (mono).
+                # Packaging at 24000 Hz restores natural, fluent human speech speed.
+                # (Packaging at 16000 Hz previously caused slow/slurred audio).
+                # -----------------------------------------------------------------
+                if content.startswith(b"RIFF"):
+                    with open(output_filepath, "wb") as f:
+                        f.write(content)
+                else:
+                    with wave.open(str(output_filepath), "wb") as wf:
+                        wf.setnchannels(1)      # 1 channel (mono)
+                        wf.setsampwidth(2)      # 16-bit PCM = 2 bytes per sample
+                        wf.setframerate(24000)  # 24 kHz calibrated sample rate
+                        wf.writeframes(content)
+
+                logger.info(f"Successfully synthesized voice note with voice '{voice}' using timbre-v3.0 ({len(content)} bytes)")
+                return {
+                    "file_name": file_id,
+                    "audio_url": f"/static/audio/{file_id}",
+                    "local_path": str(output_filepath),
+                    "script": hindi_script,
+                    "synthesized": True,
+                    "voice_used": voice
+                }
+            except Exception as exc:
+                logger.error(f"Timbre TTS synthesis with voice '{voice}' failed: {exc}")
+                # If this was the last candidate, fallback to silent WAV
+                if voice == voice_candidates[-1]:
+                    self._generate_silent_mock_wav(output_filepath)
+                    return {
+                        "file_name": file_id,
+                        "audio_url": f"/static/audio/{file_id}",
+                        "local_path": str(output_filepath),
+                        "script": hindi_script,
+                        "synthesized": False,
+                        "voice_used": voice
+                    }
 
     def _generate_silent_mock_wav(self, path: Path) -> None:
-        """Generates a minimal 44-byte standard RIFF WAV header for audio player compatibility."""
+        """Generates a minimal silent WAV buffer for audio player compatibility."""
         if not path.exists():
-            with open(path, "wb") as f:
-                f.write(
-                    b'RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00'
-                    b'D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00'
-                )
+            with wave.open(str(path), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(24000)
+                wf.writeframes(b"\x00" * 4800)  # 0.1s of silence at 24kHz
 
 timbre_service = TimbreTTSService()

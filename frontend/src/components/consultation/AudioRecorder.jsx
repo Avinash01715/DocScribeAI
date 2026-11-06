@@ -1,14 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Mic, Pause, Play, Square } from 'lucide-react'
 
-// Chrome = webm, Safari = mp4. Jo browser support kare wahi lena hai
-function pickMimeType() {
-  if (typeof MediaRecorder === 'undefined') return ''
-  const options = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
-  return options.find((t) => MediaRecorder.isTypeSupported(t)) || ''
+// -------------------------------------------------------------------------
+// PR Change: Real-time Audio Processing Pipeline for Gnani Prisma STT:
+// 1. Downsamples hardware stream (44.1kHz / 48kHz) to standardized 16kHz.
+// 2. Encodes Float32 samples into 16-bit signed Linear PCM (little-endian).
+// -------------------------------------------------------------------------
+function downsampleTo16k(input, fromRate) {
+  if (fromRate === 16000) return input
+  const ratio = fromRate / 16000
+  const newLength = Math.round(input.length / ratio)
+  const result = new Float32Array(newLength)
+  for (let i = 0; i < newLength; i++) {
+    const origIndex = Math.min(Math.round(i * ratio), input.length - 1)
+    result[i] = input[origIndex]
+  }
+  return result
 }
 
-// Technical error ko doctor ke samajhne layak message mein badlo
+// Convert Float32 samples [-1.0, 1.0] to 16-bit signed Linear PCM (little-endian)
+function floatTo16BitPCM(floatSamples) {
+  const pcm = new Int16Array(floatSamples.length)
+  for (let i = 0; i < floatSamples.length; i++) {
+    const s = Math.max(-1, Math.min(1, floatSamples[i]))
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+  }
+  return pcm.buffer
+}
+
 function micErrorMessage(err) {
   switch (err?.name) {
     case 'NotAllowedError':
@@ -25,106 +44,120 @@ function micErrorMessage(err) {
 const formatTime = (s) =>
   `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
-/**
- * Props (sab optional):
- *  onStart()     -> recording shuru hone se pehle
- *  onChunk(blob) -> har second ka audio chunk
- *  onStop(blob)  -> recording khatam, poori audio ek Blob mein
- *  disabled      -> true ho to Start button band
- */
 export default function AudioRecorder({ onStart, onChunk, onStop, disabled = false }) {
   const [status, setStatus] = useState('idle') // idle | recording | paused
   const [error, setError] = useState('')
   const [seconds, setSeconds] = useState(0)
 
-  const recorderRef = useRef(null) // recorder yaad rakhne ke liye (screen redraw nahi karwata)
-  const streamRef = useRef(null) // mic stream yaad rakhne ke liye
-  const chunksRef = useRef([]) // saare chunks jama karne ke liye
+  const streamRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const processorRef = useRef(null)
+  const statusRef = useRef('idle')
 
-  // Timer sirf "recording" mein chalta hai, pause par ruk jaata hai
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  // Timer
   useEffect(() => {
     if (status !== 'recording') return
     const id = setInterval(() => setSeconds((s) => s + 1), 1000)
     return () => clearInterval(id)
   }, [status])
 
-  // Mic (nal) band karna: warna browser mein red dot laga rehta hai
-  const releaseMic = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
+  const stopAudioPipeline = useCallback(() => {
+    if (processorRef.current) {
+      processorRef.current.disconnect()
+      processorRef.current = null
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {})
+      audioContextRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
   }, [])
 
-  // Page chhodte waqt bhi safai
-  useEffect(
-    () => () => {
-      const r = recorderRef.current
-      if (r && r.state !== 'inactive') {
-        r.onstop = null
-        r.stop()
-      }
-      releaseMic()
-    },
-    [releaseMic]
-  )
+  // Cleanup on unmount
+  useEffect(() => () => stopAudioPipeline(), [stopAudioPipeline])
 
   const start = async () => {
     setError('')
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setError('Is browser mein recording support nahi hai, ya page HTTPS/localhost par nahi khula hai.')
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('Is browser mein microphone access support nahi hai ya page secure (HTTPS/localhost) par nahi hai.')
       return
     }
+
     try {
-      // 1. Mic ki permission maango (popup yahin aata hai)
+      // 1. Get raw microphone stream
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       })
       streamRef.current = stream
 
-      await onStart?.() // 2. Parent ko batao (chunks aane se PEHLE)
+      await onStart?.()
 
-      // 3. Recorder banao aur stream se jodo
-      const mimeType = pickMimeType()
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-      chunksRef.current = []
+      // 2. Set up Web Audio API pipeline for real-time 16kHz PCM streaming
+      const AudioCtx = window.AudioContext || window.webkitAudioContext
+      const audioContext = new AudioCtx()
+      audioContextRef.current = audioContext
 
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          chunksRef.current.push(e.data) // poori recording ke liye jama karo
-          onChunk?.(e.data) // aur live bhejne ke liye parent ko do
-        }
-      }
-      recorder.onstop = () => {
-        const type = recorder.mimeType || mimeType || 'audio/webm'
-        const blob = new Blob(chunksRef.current, { type }) // sab cups -> ek bottle
-        releaseMic()
-        setStatus('idle')
-        onStop?.(blob)
-      }
-      recorder.onerror = () => {
-        setError('Recording ke dauran error aaya. Dobara try karein.')
-        releaseMic()
-        setStatus('idle')
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume()
       }
 
-      recorder.start(1000) // 1000 ms = har second ek chunk
-      recorderRef.current = recorder
+      const source = audioContext.createMediaStreamSource(stream)
+      // Buffer size 2048 gives ~46ms chunks at 44.1k/48k, or ~128ms at 16k
+      const processor = audioContext.createScriptProcessor(2048, 1, 1)
+      processorRef.current = processor
+
+      processor.onaudioprocess = (e) => {
+        if (statusRef.current !== 'recording') return
+        const channelData = e.inputBuffer.getChannelData(0)
+        // Downsample to 16,000 Hz if hardware uses 44.1k or 48k
+        const downsampled = downsampleTo16k(channelData, audioContext.sampleRate)
+        // Convert to 16-bit linear PCM byte buffer
+        const pcmBuffer = floatTo16BitPCM(downsampled)
+        onChunk?.(pcmBuffer)
+      }
+
+      source.connect(processor)
+      processor.connect(audioContext.destination)
+
       setSeconds(0)
       setStatus('recording')
     } catch (err) {
-      releaseMic()
+      stopAudioPipeline()
       setError(micErrorMessage(err))
     }
   }
 
   const pause = () => {
-    recorderRef.current?.pause()
     setStatus('paused')
+    if (audioContextRef.current?.state === 'running') {
+      audioContextRef.current.suspend()
+    }
   }
+
   const resume = () => {
-    recorderRef.current?.resume()
     setStatus('recording')
+    if (audioContextRef.current?.state === 'suspended') {
+      audioContextRef.current.resume()
+    }
   }
-  const stop = () => recorderRef.current?.stop()
+
+  const stop = () => {
+    stopAudioPipeline()
+    setStatus('idle')
+    onStop?.()
+  }
 
   const isActive = status !== 'idle'
 
@@ -135,8 +168,8 @@ export default function AudioRecorder({ onStart, onChunk, onStop, disabled = fal
         <span className="font-mono text-2xl tabular-nums text-brand">{formatTime(seconds)}</span>
       </div>
       <p className="mt-1 text-sm text-slate-400">
-        {status === 'idle' && 'Start dabakar consultation shuru karein.'}
-        {status === 'recording' && 'Recording chal rahi hai…'}
+        {status === 'idle' && 'Start dabakar bolna shuru karein. Aapki awaaz live transcribe hogi.'}
+        {status === 'recording' && 'Recording chal rahi hai… Aapki awaaz live transcribe ho rahi hai.'}
         {status === 'paused' && 'Recording paused hai.'}
       </p>
 
@@ -152,15 +185,24 @@ export default function AudioRecorder({ onStart, onChunk, onStop, disabled = fal
         ) : (
           <>
             {status === 'recording' ? (
-              <button onClick={pause} className="flex items-center gap-2 rounded-full border border-slate-600 px-5 py-3 hover:bg-white/5">
+              <button
+                onClick={pause}
+                className="flex items-center gap-2 rounded-full border border-slate-600 px-5 py-3 hover:bg-white/5"
+              >
                 <Pause size={18} /> Pause
               </button>
             ) : (
-              <button onClick={resume} className="flex items-center gap-2 rounded-full border border-brand px-5 py-3 text-brand hover:bg-white/5">
+              <button
+                onClick={resume}
+                className="flex items-center gap-2 rounded-full border border-brand px-5 py-3 text-brand hover:bg-white/5"
+              >
                 <Play size={18} /> Resume
               </button>
             )}
-            <button onClick={stop} className="flex items-center gap-2 rounded-full bg-rose-500 px-5 py-3 font-medium text-white hover:bg-rose-400">
+            <button
+              onClick={stop}
+              className="flex items-center gap-2 rounded-full bg-rose-500 px-5 py-3 font-medium text-white hover:bg-rose-400"
+            >
               <Square size={18} /> Stop
             </button>
             {status === 'recording' && (
@@ -173,7 +215,10 @@ export default function AudioRecorder({ onStart, onChunk, onStop, disabled = fal
       </div>
 
       {error && (
-        <div role="alert" className="mt-4 flex gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
+        <div
+          role="alert"
+          className="mt-4 flex gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200"
+        >
           <AlertTriangle size={18} className="mt-0.5 shrink-0" /> {error}
         </div>
       )}

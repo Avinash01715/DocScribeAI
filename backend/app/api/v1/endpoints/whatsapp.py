@@ -1,4 +1,5 @@
 # backend/app/api/whatsapp.py
+from pathlib import Path
 import urllib.parse
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -12,7 +13,7 @@ class WhatsAppSendRequest(BaseModel):
     phone_number: str = Field(..., example="919876543210")
     prescription_data: PrescriptionExtractionResponse
 
-@router.post("/whatsapp/dispatch")
+@router.post("/dispatch")
 async def dispatch_prescription(payload: WhatsAppSendRequest):
     """
     1. Synthesizes vernacular dosage instructions via Gnani Timbre TTS.
@@ -66,6 +67,7 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
         },
         "pdf_receipt": {
             "file_path": pdf_path,
+            "url": f"/static/pdf/{Path(pdf_path).name}",
             "status": "generated"
         }
     }

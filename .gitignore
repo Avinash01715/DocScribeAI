@@ -1,0 +1,25 @@
+# Python bytecode and virtual environment
+__pycache__/
+*.py[cod]
+*.class
+.venv/
+venv/
+env/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Runtime generated audio & PDF artifacts
+backend/app/data/audio_cache/*.wav
+backend/app/data/pdf_prescriptions/*.pdf
+!backend/app/data/audio_cache/.gitkeep
+!backend/app/data/pdf_prescriptions/.gitkeep
+
+# Node / Frontend build output
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+.DS_Store
+Thumbs.db

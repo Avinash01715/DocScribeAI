@@ -1,5 +1,7 @@
 # backend/app/services/gnani/evon_service.py
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import json
 import logging
 from typing import Optional
@@ -8,6 +10,7 @@ from google.genai import types
 
 from app.schemas.prescription import PrescriptionExtractionResponse
 from app.utils.drug_matcher import drug_matcher
+from app.utils.hinglish import devanagari_to_hinglish
 
 logger = logging.getLogger("dhanvantari.evon")
 
@@ -22,6 +25,7 @@ Analyze the doctor-patient consultation transcript (which may be in code-mixed H
 4. General medical/dietary advice.
 
 Important Rules:
+- All output MUST BE IN LATIN/ROMAN SCRIPT (English or conversational Hinglish). NEVER output in Devanagari Hindi characters (e.g., write 'Ramesh' instead of 'रमेश', write 'Gale mein dard' instead of 'गले में दर्द').
 - Frequencies must be normalized (e.g., 'teen baar' or 'thrice' -> '1 - 1 - 1', 'subah-shaam' or 'twice' -> '1 - 0 - 1', 'ek baar' -> '0 - 0 - 1').
 - Timing must be normalized ('khana khane ke baad' -> 'After meals', 'khali pet' -> 'Before food').
 - Return ONLY valid JSON adhering strictly to the schema.
@@ -57,6 +61,17 @@ class EvonClinicalService:
             )
 
             parsed_data = PrescriptionExtractionResponse.model_validate_json(response.text)
+            
+            # -----------------------------------------------------------------
+            # PR Change: Enforce Hinglish (Latin/Roman script) normalization on all
+            # extracted clinical entities (Patient Name, Diagnosis, Complaints, Advice).
+            # Avoids Devanagari rendering issues in PDF generation and WhatsApp previews.
+            # -----------------------------------------------------------------
+            parsed_data.patient_info.name = devanagari_to_hinglish(parsed_data.patient_info.name)
+            parsed_data.clinical_findings.diagnosis = devanagari_to_hinglish(parsed_data.clinical_findings.diagnosis)
+            parsed_data.patient_info.chief_complaints = [devanagari_to_hinglish(c) for c in parsed_data.patient_info.chief_complaints]
+            if parsed_data.advice:
+                parsed_data.advice = devanagari_to_hinglish(parsed_data.advice)
             
             # Post-process: Cross-reference extracted medications against local Indian formulary
             for item in parsed_data.prescription:
