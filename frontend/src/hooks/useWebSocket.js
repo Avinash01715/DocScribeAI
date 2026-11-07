@@ -1,96 +1,239 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MOCK_TRANSCRIPT } from '../data/mockData'
+import { MOCK_TRANSCRIPT, MOCK_PRESCRIPTION } from '../data/mockData'
 
 /**
- * Use:  const ws = useWebSocket({ mock: true, onMessage })
- *       ws.connect(url)   ws.send(data)   ws.disconnect()
- *       ws.status -> idle | connecting | connected | closed | error
+ * useWebSocket.js - Reactive State Coordinator & Bidirectional Transport
  *
- * Backend se aane wale messages (tay hua contract):
- *   { type: 'TRANSCRIPT', text, speaker, is_final }    <- live transcript
- *   { type: 'STRUCTURED_CARDS', payload: {...} }       <- prescription (Day 4+)
+ * Implements specifications:
+ * 1. Connection lifecycle to ws://127.0.0.1:8000/ws/consultation.
+ * 2. Explicit state management:
+ *    - connectionStatus: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR'
+ *    - interimTranscript: Unconfirmed streaming speech tokens from Gnani Prisma STT.
+ *    - confirmedTranscript: Accumulated finalized consultation text.
+ *    - extractedPrescription: Parsed clinical DTO from Evon LLM.
+ *    - pipelineStatus: Progress indicators (e.g. "Analyzing clinical dialogue with Evon LLM...").
+ * 3. Heartbeat keeping socket active (PING frame every 20s).
+ * 4. Exponential backoff auto-reconnect strategy.
+ * 5. Direct raw binary frame dispatch for 16kHz PCM chunks without serialization overhead.
+ * 6. Action handlers: sendAudioChunk(buffer), triggerProcess(), resetSession().
  */
-export default function useWebSocket({ mock = false, onMessage } = {}) {
-  const [status, setStatus] = useState('idle')
+
+const DEFAULT_WS_URL = 'ws://127.0.0.1:8000/ws/consultation'
+const HEARTBEAT_INTERVAL_MS = 20000 // 20s heartbeat keep-alive
+const INITIAL_RETRY_DELAY_MS = 1000 // 1s initial exponential backoff delay
+const MAX_RETRY_DELAY_MS = 16000 // 16s cap for exponential backoff
+
+export default function useWebSocket({
+  url = DEFAULT_WS_URL,
+  mock = false,
+  onMessage,
+  autoReconnect = false,
+} = {}) {
+  // ---- 1. Specification Managed States ----
+  const [connectionStatus, setConnectionStatus] = useState('DISCONNECTED')
+  const [interimTranscript, setInterimTranscript] = useState('')
+  const [confirmedTranscript, setConfirmedTranscript] = useState('')
+  const [extractedPrescription, setExtractedPrescription] = useState(null)
+  const [pipelineStatus, setPipelineStatus] = useState('')
   const [error, setError] = useState('')
 
-  const wsRef = useRef(null)
-  const queueRef = useRef([]) // socket khulne se pehle aaya data yahan ruka rehta hai
-  const mockTimerRef = useRef(null)
-  const onMessageRef = useRef(onMessage)
+  // Backward-compatibility alias for legacy components expecting 'idle' | 'closed'
+  const legacyStatus =
+    connectionStatus === 'CONNECTED'
+      ? 'connected'
+      : connectionStatus === 'CONNECTING'
+        ? 'connecting'
+        : connectionStatus === 'ERROR'
+          ? 'error'
+          : 'closed'
 
-  // Hamesha sabse naya callback yaad rahe (purana/stale na chale)
+  // Refs for socket management and timers
+  const wsRef = useRef(null)
+  const queueRef = useRef([]) // Buffers audio chunks arriving before socket handshake completes
+  const mockTimerRef = useRef(null)
+  const heartbeatTimerRef = useRef(null)
+  const reconnectTimerRef = useRef(null)
+  const retryCountRef = useRef(0)
+  const explicitlyClosedRef = useRef(false)
+  const onMessageRef = useRef(onMessage)
+  const connectRef = useRef(null)
+
+  // Keep latest message callback without causing reconnect re-triggers
   useEffect(() => {
     onMessageRef.current = onMessage
   }, [onMessage])
 
+  // ---- 2. Socket Heartbeat Management ----
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current)
+      heartbeatTimerRef.current = null
+    }
+  }, [])
+
+  const startHeartbeat = useCallback(() => {
+    stopHeartbeat()
+    heartbeatTimerRef.current = setInterval(() => {
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        // Send lightweight JSON ping to prevent intermediate gateway timeouts
+        ws.send(JSON.stringify({ action: 'PING' }))
+      }
+    }, HEARTBEAT_INTERVAL_MS)
+  }, [stopHeartbeat])
+
+  // ---- 3. Disconnection & Cleanup ----
   const disconnect = useCallback(() => {
-    clearInterval(mockTimerRef.current)
+    explicitlyClosedRef.current = true
+    stopHeartbeat()
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    if (mockTimerRef.current) {
+      clearInterval(mockTimerRef.current)
+      mockTimerRef.current = null
+    }
     if (wsRef.current) {
-      wsRef.current.onclose = null // jaan-boojhkar band kiya, error mat samjho
+      wsRef.current.onclose = null // Suppress error trigger on intentional close
       wsRef.current.close()
       wsRef.current = null
     }
     queueRef.current = []
-    setStatus('closed')
-  }, [])
+    setConnectionStatus('DISCONNECTED')
+  }, [stopHeartbeat])
 
+  // ---- 4. Bidirectional Connection Transport ----
   const connect = useCallback(
-    (url) => {
+    (targetUrl = url) => {
+      explicitlyClosedRef.current = false
       setError('')
-      setStatus('connecting')
+      setConnectionStatus('CONNECTING')
 
-      // ---- MOCK: backend ke bina har 3 second mein ek line ----
+      // Mock Mode Fallback: Emulates live STT tokens every 3 seconds for offline development
       if (mock) {
         let i = 0
-        setStatus('connected')
+        setConnectionStatus('CONNECTED')
         mockTimerRef.current = setInterval(() => {
-          if (i >= MOCK_TRANSCRIPT.length) return clearInterval(mockTimerRef.current)
-          onMessageRef.current?.({ type: 'TRANSCRIPT', is_final: true, ...MOCK_TRANSCRIPT[i] })
+          if (i >= MOCK_TRANSCRIPT.length) {
+            clearInterval(mockTimerRef.current)
+            return
+          }
+          const item = MOCK_TRANSCRIPT[i]
+          setConfirmedTranscript((prev) => (prev ? `${prev} ${item.text}` : item.text))
+          onMessageRef.current?.({ type: 'TRANSCRIPT', is_final: true, ...item })
           i += 1
         }, 3000)
         return
       }
 
-      // ---- ASLI: Day 6 mein ye chalega ----
-      const ws = new WebSocket(url)
+      // Live WebSocket Transport
+      const ws = new WebSocket(targetUrl)
       ws.binaryType = 'arraybuffer'
       wsRef.current = ws
 
       ws.onopen = () => {
-        setStatus('connected')
-        // Pehla audio chunk header jaisa hota hai, isliye gira nahi sakte: jo ruka tha wo ab bhejo
-        queueRef.current.forEach((d) => ws.send(d))
-        queueRef.current = []
-      }
-      ws.onmessage = (event) => {
-        try {
-          onMessageRef.current?.(JSON.parse(event.data))
-        } catch {
-          console.warn('Backend se invalid JSON aaya:', event.data)
+        setConnectionStatus('CONNECTED')
+        retryCountRef.current = 0 // Reset exponential backoff on successful handshake
+        startHeartbeat()
+
+        // Flush any queued audio buffers accumulated during connection handshake
+        if (queueRef.current.length > 0) {
+          queueRef.current.forEach((chunk) => ws.send(chunk))
+          queueRef.current = []
         }
       }
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data)
+
+          // Frame 1: TRANSCRIPT_UPDATE / TRANSCRIPT
+          // Updates interim partial speech tokens and accumulates finalized clinical sentences
+          if (msg.type === 'TRANSCRIPT_UPDATE' || msg.type === 'TRANSCRIPT') {
+            const token = msg.text || msg.interim || ''
+            if (msg.is_final) {
+              setInterimTranscript('')
+              if (msg.transcript) {
+                setConfirmedTranscript(msg.transcript)
+              } else if (token) {
+                setConfirmedTranscript((prev) => (prev ? `${prev} ${token}` : token))
+              }
+            } else {
+              setInterimTranscript(token)
+            }
+          }
+
+          // Frame 2: STATUS
+          // Updates real-time reasoning progress (e.g., "Analyzing clinical dialogue with Evon LLM...")
+          else if (msg.type === 'STATUS') {
+            setPipelineStatus(msg.message || '')
+          }
+
+          // Frame 3: PRESCRIPTION_EXTRACTED / STRUCTURED_CARDS
+          // Populates the clinical DTO (patient_info, clinical_findings, prescription, advice)
+          else if (msg.type === 'PRESCRIPTION_EXTRACTED') {
+            setExtractedPrescription(msg.data)
+            setPipelineStatus('')
+          } else if (msg.type === 'STRUCTURED_CARDS') {
+            setExtractedPrescription(msg.payload)
+            setPipelineStatus('')
+          }
+
+          // Relay parsed frame downstream to custom subscriber
+          onMessageRef.current?.(msg)
+        } catch {
+          console.warn('Inbound non-JSON frame received:', event.data)
+        }
+      }
+
       ws.onerror = () => {
         setError('Server se connection nahi ban paya. Internet ya backend check karein.')
-        setStatus('error')
+        setConnectionStatus('ERROR')
       }
-      ws.onclose = () => setStatus((s) => (s === 'error' ? s : 'closed'))
+
+      ws.onclose = () => {
+        stopHeartbeat()
+        if (explicitlyClosedRef.current) {
+          setConnectionStatus('DISCONNECTED')
+          return
+        }
+
+        setConnectionStatus('DISCONNECTED')
+
+        // Exponential backoff reconnect strategy when closed unexpectedly
+        if (autoReconnect) {
+          const delay = Math.min(
+            INITIAL_RETRY_DELAY_MS * Math.pow(2, retryCountRef.current),
+            MAX_RETRY_DELAY_MS
+          )
+          retryCountRef.current += 1
+          reconnectTimerRef.current = setTimeout(() => {
+            connectRef.current?.(targetUrl)
+          }, delay)
+        }
+      }
     },
-    [mock]
+    [url, mock, startHeartbeat, stopHeartbeat, autoReconnect]
   )
 
-  // send() hamesha ek hi function rehta hai (useCallback), taaki AudioRecorder
-  // ke andar purana yaad kiya hua send() bhi sahi kaam kare
-  const send = useCallback(
-    (data) => {
+  // Keep connect ref current for the timeout callback
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
+
+  // ---- 5. Binary Audio Dispatch Handler ----
+  // Dispatches raw binary audio frames (16kHz PCM Int16Array) via socket.send(buffer) without string overhead
+  const sendAudioChunk = useCallback(
+    (buffer) => {
       if (mock) return true
       const ws = wsRef.current
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(data)
+        ws.send(buffer)
         return true
       }
       if (ws && ws.readyState === WebSocket.CONNECTING) {
-        queueRef.current.push(data)
+        queueRef.current.push(buffer)
         return true
       }
       return false
@@ -98,7 +241,68 @@ export default function useWebSocket({ mock = false, onMessage } = {}) {
     [mock]
   )
 
-  useEffect(() => disconnect, [disconnect]) // page chhodte waqt call kaat do
+  // Generic send helper (backward compatibility)
+  const send = useCallback(
+    (data) => {
+      return sendAudioChunk(data)
+    },
+    [sendAudioChunk]
+  )
 
-  return { status, error, connect, disconnect, send }
+  // ---- 6. Action Handlers ----
+  // Trigger clinical extraction reasoning on backend
+  const triggerProcess = useCallback(
+    (customTranscript) => {
+      setPipelineStatus('Analyzing clinical dialogue with Evon LLM...')
+      const payload = {
+        action: 'PROCESS',
+        transcript: customTranscript || confirmedTranscript,
+      }
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(payload))
+      } else if (mock) {
+        setTimeout(() => {
+          setExtractedPrescription(MOCK_PRESCRIPTION)
+          setPipelineStatus('')
+        }, 1500)
+      }
+    },
+    [confirmedTranscript, mock]
+  )
+
+  // Reset session: flushes clinical buffers and notifies backend
+  const resetSession = useCallback(() => {
+    setInterimTranscript('')
+    setConfirmedTranscript('')
+    setExtractedPrescription(null)
+    setPipelineStatus('')
+    setError('')
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: 'RESET' }))
+    }
+  }, [])
+
+  // Auto cleanup on unmount
+  useEffect(() => disconnect, [disconnect])
+
+  return {
+    // Managed States as per Specification
+    connectionStatus,
+    interimTranscript,
+    confirmedTranscript,
+    extractedPrescription,
+    pipelineStatus,
+    error,
+    // Backward Compatibility aliases
+    status: legacyStatus,
+    // Action Handlers
+    sendAudioChunk,
+    triggerProcess,
+    resetSession,
+    connect,
+    disconnect,
+    send,
+  }
 }
