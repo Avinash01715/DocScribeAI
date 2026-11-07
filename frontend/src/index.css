@@ -1,14 +1,45 @@
 @import "tailwindcss";
 
+/**
+ * UI/UX Theme Specifications (Tailwind CSS)
+ *
+ * Color Tokens:
+ * - Backgrounds: slate-950 (#020617), slate-900 (#0f172a), slate-800 (#1e293b)
+ * - Primary Accents (Medical Teal): teal-500 (#14b8a6), teal-400 (#2dd4bf)
+ * - Status Accents: emerald-400 (#34d399), amber-400 (#fbbf24), rose-500 (#f43f5e)
+ * - Typography: Clean sans-serif (Inter) with monospace tabular fonts (JetBrains Mono)
+ */
 @theme {
-  --color-ink: #0f1b2a;        /* page background */
-  --color-panel: #18263a;      /* cards, sidebar */
-  --color-brand-dark: #17524a; /* consultation card */
-  --color-brand: #2dd4bf;      /* teal accent, buttons */
+  --color-ink: #020617;        /* Deep slate-950 background */
+  --color-panel: #0f172a;      /* Slate-900 card and panel surfaces */
+  --color-panel-border: #1e293b; /* Slate-800 borders and separators */
+  --color-brand-dark: #0f766e; /* Deep medical teal */
+  --color-brand: #14b8a6;      /* Medical teal-500 primary buttons/waveform */
+  --color-brand-light: #2dd4bf;/* Teal-400 hover accents */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 body {
   background-color: var(--color-ink);
   color: #f1f5f9;
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbars for clinical dialogue viewport */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
