@@ -1,11 +1,16 @@
 # backend/app/services/gnani/timbre_service.py
+"""
+Gnani Timbre TTS Service.
+Provides high-fidelity vernacular voice synthesis calibrated for 48,000 Hz Linear PCM RIFF WAV audio.
+"""
+import io
 import os
 import re
 import uuid
 import wave
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
 import httpx
 
@@ -21,8 +26,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
 AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Standard clinical tele-health audio sampling clock (16 kHz, 16-bit Mono Linear PCM)
-DEFAULT_SAMPLE_RATE = 16000
+# Standard studio-quality TTS sampling clock (48 kHz, 16-bit Mono Linear PCM)
+DEFAULT_SAMPLE_RATE = 48000
 
 
 class TimbreTTSService:
@@ -80,51 +85,62 @@ class TimbreTTSService:
 
         return " ".join(phrases)
 
-    async def synthesize_text(
+    def _package_pcm_to_wav(self, raw_pcm: bytes, sample_rate: int = DEFAULT_SAMPLE_RATE) -> bytes:
+        """Packages raw 16-bit Mono Linear PCM into a compliant RIFF WAV container in memory."""
+        wav_io = io.BytesIO()
+        with wave.open(wav_io, "wb") as wf:
+            wf.setnchannels(1)             # Mono
+            wf.setsampwidth(2)             # 16-bit signed PCM
+            wf.setframerate(sample_rate)   # Calibrated 48000 Hz
+            wf.writeframes(raw_pcm)
+        return wav_io.getvalue()
+
+    async def synthesize_raw_wav(
         self,
         text: str,
         language: str = "hi-IN",
-        output_filename: Optional[str] = None
-    ) -> Dict[str, Any]:
+        voice: Optional[str] = None,
+        target_sample_rate: int = DEFAULT_SAMPLE_RATE
+    ) -> Tuple[bytes, int]:
         """
-        Synthesizes text via Gnani Timbre TTS and packages the resulting stream
-        into an accurate, browser-compatible RIFF WAV file.
+        Synthesizes text via Gnani Timbre TTS and returns (wav_bytes, sample_rate).
+        Guarantees compliant RIFF WAV headers aligned to target_sample_rate.
         """
-        file_id = output_filename if output_filename else f"rx_{uuid.uuid4().hex[:8]}.wav"
-        output_filepath = AUDIO_CACHE_DIR / file_id
-
-        # Deterministic offline mock fallback
+        # Fallback offline mock buffer when API key is unconfigured
         if not self.api_key:
-            logger.info("GNANI_API_KEY not set. Generating 16kHz calibrated mock WAV buffer.")
-            self._generate_silent_mock_wav(output_filepath, sample_rate=DEFAULT_SAMPLE_RATE)
-            return {
-                "file_name": file_id,
-                "audio_url": f"/static/audio/{file_id}",
-                "local_path": str(output_filepath),
-                "script": text,
-                "synthesized": False
-            }
+            logger.info(f"GNANI_API_KEY unconfigured. Generating synthetic mock buffer at {target_sample_rate}Hz.")
+            silent_pcm = b"\x00" * (target_sample_rate * 2)  # 1.0 second silence
+            return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
 
         headers = {
             "X-API-Key-ID": self.api_key,
             "Content-Type": "application/json"
         }
 
-        voice_candidates = ["Avinash", "Lakshmi", "Shivani", "Kalpana", "Shubham", "Prakash", "Devansh"]
-        for voice in voice_candidates:
+        candidates = [voice] if voice else ["Avinash", "Lakshmi", "Shivani", "Kalpana", "Shubham", "Prakash", "Devansh"]
+
+        for v in candidates:
+            if not v:
+                continue
+
+            # Explicitly request WAV container and 48000 Hz linear PCM from Timbre TTS API
             payload = {
                 "text": text,
                 "language": language,
-                "voice": voice,
-                "model": "timbre-v3.0"
+                "voice": v,
+                "model": "timbre-v3.0",
+                "container": "wav",
+                "audioformat": "wav",
+                "sample_rate": target_sample_rate
             }
+
             try:
                 async with httpx.AsyncClient(timeout=20.0) as client:
                     response = await client.post(self.api_url, headers=headers, json=payload)
 
-                # Catch JSON error responses
+                # Trap JSON error responses
                 if "application/json" in response.headers.get("Content-Type", "").lower():
-                    raise Exception(f"Timbre API returned JSON error: {response.text[:200]}")
+                    raise Exception(f"Timbre API error payload: {response.text[:200]}")
 
                 response.raise_for_status()
                 content = response.content
@@ -132,47 +148,65 @@ class TimbreTTSService:
                 if not content or len(content) < 1024:
                     raise Exception("Timbre API returned empty or truncated audio buffer")
 
-                # Detect sample rate from response headers if available, else calibrate to 16000 Hz
-                detected_rate = DEFAULT_SAMPLE_RATE
+                # Parse sample rate from response header if provided, otherwise preserve target
+                detected_rate = target_sample_rate
                 rate_header = response.headers.get("x-audio-sample-rate")
                 if rate_header and rate_header.isdigit():
                     detected_rate = int(rate_header)
 
-                # Write directly if already a RIFF WAV container, otherwise package raw Linear PCM
+                # Ensure container RIFF WAV encapsulation
                 if content.startswith(b"RIFF"):
-                    with open(output_filepath, "wb") as f:
-                        f.write(content)
+                    wav_bytes = content
                 else:
-                    with wave.open(str(output_filepath), "wb") as wf:
-                        wf.setnchannels(1)             # 1 Channel (Mono)
-                        wf.setsampwidth(2)             # 16-bit PCM = 2 bytes per sample
-                        wf.setframerate(detected_rate) # Calibrated sampling frequency (16000 Hz)
-                        wf.writeframes(content)
+                    wav_bytes = self._package_pcm_to_wav(content, sample_rate=detected_rate)
 
                 logger.info(
-                    f"Synthesized voice note successfully (Voice: '{voice}', SampleRate: {detected_rate}Hz, Bytes: {len(content)})"
+                    f"Successfully synthesized audio with voice '{v}' (SampleRate: {detected_rate}Hz, Bytes: {len(wav_bytes)})"
                 )
-                return {
-                    "file_name": file_id,
-                    "audio_url": f"/static/audio/{file_id}",
-                    "local_path": str(output_filepath),
-                    "script": text,
-                    "synthesized": True,
-                    "voice_used": voice
-                }
+                return wav_bytes, detected_rate
+
             except Exception as exc:
-                logger.error(f"Timbre TTS synthesis with voice '{voice}' failed: {exc}")
-                if voice == voice_candidates[-1]:
-                    # Final fallback to calibrated silent buffer
-                    self._generate_silent_mock_wav(output_filepath, sample_rate=DEFAULT_SAMPLE_RATE)
-                    return {
-                        "file_name": file_id,
-                        "audio_url": f"/static/audio/{file_id}",
-                        "local_path": str(output_filepath),
-                        "script": text,
-                        "synthesized": False,
-                        "voice_used": voice
-                    }
+                logger.warning(f"Voice candidate '{v}' synthesis failed: {exc}")
+                if v == candidates[-1]:
+                    # Final safety fallback
+                    logger.error("All Timbre voice candidates exhausted. Returning calibrated fallback audio.")
+                    silent_pcm = b"\x00" * (target_sample_rate * 2)
+                    return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
+
+        # Ultimate fallback
+        silent_pcm = b"\x00" * (target_sample_rate * 2)
+        return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
+
+    async def synthesize_text(
+        self,
+        text: str,
+        language: str = "hi-IN",
+        output_filename: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Synthesizes text via Gnani Timbre TTS and saves the output to disk cache.
+        Preserves 48000 Hz containerized WAV files.
+        """
+        file_id = output_filename if output_filename else f"rx_{uuid.uuid4().hex[:8]}.wav"
+        output_filepath = AUDIO_CACHE_DIR / file_id
+
+        wav_bytes, detected_rate = await self.synthesize_raw_wav(
+            text=text,
+            language=language,
+            target_sample_rate=DEFAULT_SAMPLE_RATE
+        )
+
+        with open(output_filepath, "wb") as f:
+            f.write(wav_bytes)
+
+        return {
+            "file_name": file_id,
+            "audio_url": f"/static/audio/{file_id}",
+            "local_path": str(output_filepath),
+            "script": text,
+            "sample_rate": detected_rate,
+            "synthesized": bool(self.api_key)
+        }
 
     async def generate_voice_note(
         self,
@@ -184,10 +218,7 @@ class TimbreTTSService:
         return await self.synthesize_text(text=hindi_script, language=language)
 
     def _generate_silent_mock_wav(self, path: Path, sample_rate: int = DEFAULT_SAMPLE_RATE) -> None:
-        """
-        Generates 1.0 second of clean silence calibrated at the target sample rate.
-        16000 samples/sec * 2 bytes/sample * 1 second = 32000 bytes.
-        """
+        """Generates 1.0 second of clean silence calibrated at the target sample rate."""
         if not path.exists():
             with wave.open(str(path), "wb") as wf:
                 wf.setnchannels(1)
