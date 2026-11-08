@@ -3,11 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import DashboardLayout from '../components/layout/DashboardLayout'
 
 const recent = [
-  { id: '001', status: 'Prescription generated' },
-  { id: '002', status: 'Pending review' },
+  { id: '001', status: 'Prescription sent via WhatsApp', time: '10:30 AM' },
+  { id: '002', status: 'Pending review',                 time: '09:15 AM' },
 ]
 
-// Time ke hisaab se greeting
 function greeting() {
   const h = new Date().getHours()
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
@@ -18,39 +17,52 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <h1 className="text-2xl font-bold">{greeting()}, Doctor 👋</h1>
-      <p className="mt-1 text-slate-400">
-        <span className="md:hidden">Ready for your next consultation?</span>
-        <span className="hidden md:inline">Manage your patient consultations.</span>
-      </p>
+      {/* Header */}
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+          {greeting()}, Doctor
+        </h1>
+        <p className="mt-0.5 text-xs font-medium text-slate-500">
+          Ready for your patient consultations.
+        </p>
+      </div>
 
-      {/* Start consultation card */}
-      <section className="mt-5 rounded-xl bg-brand-dark p-5">
-        <Mic className="h-5 w-5 text-brand" />
-        <h2 className="mt-3 text-xl font-semibold">
-          <span className="md:hidden">New Consultation</span>
-          <span className="hidden md:inline">Start Consultation</span>
-        </h2>
-        <p className="mt-2 text-sm text-slate-200">Record a doctor-patient conversation.</p>
+      {/* Start Consultation Card */}
+      <section className="rounded-2xl border border-teal-200/90 bg-white p-5 shadow-xs">
+        <div className="flex items-center gap-2 text-teal-800 text-xs font-bold uppercase tracking-wider">
+          <Mic className="h-4 w-4 text-teal-600" />
+          <span>New Consultation</span>
+        </div>
+
+        <p className="mt-2 text-sm font-medium text-slate-700">
+          Record conversation to transcribe and generate prescription automatically.
+        </p>
+
         <button
-          onClick={() => navigate('/consultation')} // router se consultation page pe le jaao
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-brand py-2.5 font-medium text-ink hover:opacity-90"
+          onClick={() => navigate('/consultation')}
+          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-700 transition"
         >
-          <Plus className="hidden h-4 w-4 md:inline" />
-          <span className="md:hidden">Start Recording</span>
-          <span className="hidden md:inline">New Consultation</span>
+          <Plus className="h-4 w-4" /> Start Consultation
         </button>
       </section>
 
-      <h2 className="mt-8 text-lg font-semibold">Recent Consultations</h2>
-      <ul className="mt-3 space-y-3">
-        {recent.map((c) => (
-          <li key={c.id} className="rounded-lg bg-panel p-3">
-            <p className="font-medium">Patient consultation #{c.id}</p>
-            <p className="text-sm text-slate-400">{c.status}</p>
-          </li>
-        ))}
-      </ul>
+      {/* Recent Consultations */}
+      <div className="mt-6">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+          Recent Consultations
+        </h2>
+        <ul className="mt-2.5 space-y-2">
+          {recent.map((c) => (
+            <li key={c.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs hover:border-slate-300 transition">
+              <div>
+                <p className="text-xs font-bold text-slate-900">Patient #{c.id}</p>
+                <p className="text-[11px] font-medium text-slate-500">{c.status}</p>
+              </div>
+              <span className="text-[11px] font-medium text-slate-400">{c.time}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </DashboardLayout>
   )
 }

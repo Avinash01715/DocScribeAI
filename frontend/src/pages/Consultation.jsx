@@ -1,22 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Loader2, Send } from 'lucide-react'
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import AudioRecorder from '../components/consultation/AudioRecorder'
 import LiveTranscript from '../components/consultation/LiveTranscript'
 import PrescriptionReview from '../components/prescription/PrescriptionReview'
-import WhatsAppModal from '../components/patient/WhatsAppModal'
+import WhatsAppModal, { WhatsAppIcon } from '../components/patient/WhatsAppModal'
 import useWebSocket from '../hooks/useWebSocket'
 import { withUids } from '../utils/prescription'
 
 /**
- * Consultation.jsx - Real-Time Ambient Clinical Operating Console
- *
- * Implements specifications:
- * 1. Coordinates global consultation lifecycle between Audio Ingestion Engine & Clinical Viewport.
- * 2. Integrates reactive useWebSocket state machine (16kHz PCM streaming, Evon LLM status, Prescription DTO).
- * 3. Human-in-the-loop clinical review and approval gating.
- * 4. Multimodal WhatsApp dispatch trigger.
+ * Consultation.jsx - Real-Time Ambient Clinical Console (Minimalist Light Clinical)
  */
 
 let lineId = 0
@@ -38,7 +32,6 @@ export default function Consultation() {
 
   // Message Handler for incoming backend frames
   const handleMessage = useCallback((msg) => {
-    // 1. Live Transcript Update
     if (msg.type === 'TRANSCRIPT' || msg.type === 'TRANSCRIPT_UPDATE') {
       const token = msg.text || msg.interim || msg.transcript
       if (token) {
@@ -52,13 +45,9 @@ export default function Consultation() {
           },
         ])
       }
-    }
-    // 2. LLM Reasoning Status Indicator
-    else if (msg.type === 'STATUS') {
+    } else if (msg.type === 'STATUS') {
       setStatusText(msg.message || '')
-    }
-    // 3. Structured Clinical Extraction DTO
-    else if (msg.type === 'PRESCRIPTION_EXTRACTED') {
+    } else if (msg.type === 'PRESCRIPTION_EXTRACTED') {
       setPrescription(withUids(msg.data))
       setProcessing(false)
       setStatusText('')
@@ -69,23 +58,19 @@ export default function Consultation() {
     }
   }, [])
 
-  // Reactive WebSocket State Coordinator Hook
   const ws = useWebSocket({
     url: WS_URL,
     mock: false,
     onMessage: handleMessage,
   })
 
-  // Cleanup timers on unmount
   useEffect(() => () => clearTimeout(timerRef.current), [])
 
-  // Editing any field invalidates previous approval to enforce verification
   const handleEdit = (next) => {
     setPrescription(next)
     setApproved(false)
   }
 
-  // Multimodal Dispatch Handler (POST to /api/v1/whatsapp/dispatch)
   const handlePrepare = async (phone) => {
     const cleanPhone = phone.replace(/\D/g, '')
     const res = await fetch(`${API_BASE_URL}/api/v1/whatsapp/dispatch`, {
@@ -104,7 +89,6 @@ export default function Consultation() {
 
     const data = await res.json()
 
-    // Resolve relative static audio & PDF URLs to absolute backend host
     if (data.voice_note?.audio_url?.startsWith('/')) {
       data.voice_note.audio_url = `${API_BASE_URL}${data.voice_note.audio_url}`
     }
@@ -115,7 +99,6 @@ export default function Consultation() {
     return data
   }
 
-  // Handler: Start Consultation
   const handleStartConsultation = () => {
     setLines([])
     setPrescription(null)
@@ -125,16 +108,13 @@ export default function Consultation() {
     setRecording(true)
   }
 
-  // Handler: Process Consultation
   const handleProcessConsultation = () => {
     setRecording(false)
     setProcessing(true)
-    setStatusText('Analyzing clinical dialogue with Evon LLM...')
-    // Emits action to backend Evon LLM extractor
+    setStatusText('Analyzing dialogue…')
     ws.triggerProcess()
   }
 
-  // Handler: New Patient (Reset)
   const handleResetSession = () => {
     setRecording(false)
     setProcessing(false)
@@ -147,18 +127,17 @@ export default function Consultation() {
 
   return (
     <DashboardLayout>
-      {/* Return to Dashboard Navigation */}
+      {/* Return Button */}
       <button
         onClick={() => navigate('/')}
-        className="mb-4 flex items-center gap-2 text-sm text-slate-400 hover:text-slate-100 transition"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-950 transition"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+        <ArrowLeft className="h-3.5 w-3.5" /> Back
       </button>
 
-      <div className="space-y-5">
-        {/* Top Grid: Audio Ingestion Engine & Live Ambient Viewport */}
-        <div className="grid gap-5 lg:grid-cols-2">
-          {/* Audio Ingestion Engine: Web Audio API, 16kHz PCM, VU Meter */}
+      <div className="space-y-4">
+        {/* Top Grid: Audio Ingestion & Live Ambient Transcript */}
+        <div className="grid gap-4 lg:grid-cols-2">
           <AudioRecorder
             disabled={processing}
             isProcessing={processing}
@@ -168,7 +147,6 @@ export default function Consultation() {
             onReset={handleResetSession}
           />
 
-          {/* Clinical Viewport: Real-Time Gnani Prisma STT Streaming */}
           <LiveTranscript
             lines={lines}
             interim={ws.interimTranscript}
@@ -179,17 +157,17 @@ export default function Consultation() {
           />
         </div>
 
-        {/* Evon LLM Reasoning Progress Bar */}
+        {/* AI Progress */}
         {processing && (
-          <div className="flex items-center gap-3 rounded-xl border border-teal-500/30 bg-panel p-5 text-slate-200">
-            <Loader2 className="animate-spin text-teal-400" size={22} />
-            <span className="font-medium">
-              {statusText || 'Analyzing clinical dialogue with Evon LLM…'}
+          <div className="flex items-center gap-2.5 rounded-2xl border border-teal-200 bg-teal-50 p-3.5 text-teal-900 shadow-xs">
+            <Loader2 className="animate-spin text-teal-600" size={18} />
+            <span className="text-xs font-bold">
+              {statusText || 'Analyzing dialogue with AI…'}
             </span>
           </div>
         )}
 
-        {/* Structured Prescription Grid & Human-in-the-Loop Review */}
+        {/* Prescription Review & WhatsApp Dispatch Action */}
         {prescription && (
           <>
             <PrescriptionReview
@@ -199,23 +177,25 @@ export default function Consultation() {
               onApprove={() => setApproved(true)}
             />
 
-            {/* Final Dispatch Action Button */}
-            <button
-              onClick={() => setShareOpen(true)}
-              disabled={!approved}
-              className="flex w-full items-center justify-center gap-2 rounded-full bg-teal-500 px-6 py-3.5 font-semibold text-ink shadow-lg shadow-teal-500/20 hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-40 transition"
-            >
-              <Send size={18} /> Send Prescription to Patient (WhatsApp Dispatch)
-            </button>
-            {!approved && (
-              <p className="text-center text-xs text-slate-400">
-                Please approve the clinical prescription above prior to patient dispatch.
-              </p>
-            )}
+            <div className="space-y-1.5 pt-1">
+              <button
+                onClick={() => setShareOpen(true)}
+                disabled={!approved}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-2.5 text-xs sm:text-sm font-bold text-white shadow-xs hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-40 transition"
+              >
+                <WhatsAppIcon className="h-4 w-4 fill-white" />
+                <span>Send via WhatsApp</span>
+              </button>
+              {!approved && (
+                <p className="text-center text-[11px] font-semibold text-slate-500">
+                  Approve prescription before sending.
+                </p>
+              )}
+            </div>
           </>
         )}
 
-        {/* Multimodal Dispatch Orchestrator Modal */}
+        {/* WhatsApp Output Modal */}
         <WhatsAppModal
           open={shareOpen}
           onClose={() => setShareOpen(false)}

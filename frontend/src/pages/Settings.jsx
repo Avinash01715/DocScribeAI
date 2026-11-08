@@ -1,13 +1,22 @@
 import DashboardLayout from '../components/layout/DashboardLayout'
+import { Settings as SettingsIcon } from 'lucide-react'
 
-// Settings page – abhi empty
 export default function Settings() {
   return (
     <DashboardLayout>
-      <h1 className="text-2xl font-bold">Settings</h1>
-      <p className="mt-2 text-slate-400">App settings yahan aayenge.</p>
-      <div className="mt-6 rounded-xl bg-panel p-5 text-sm text-slate-300">
-        Coming soon – language, mic, notification preferences.
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Settings</h1>
+        <p className="mt-0.5 text-xs font-medium text-slate-500">System preferences.</p>
+      </div>
+
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-xs">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 border border-slate-200 text-slate-700 mb-2.5">
+          <SettingsIcon size={20} />
+        </div>
+        <h3 className="text-xs font-bold text-slate-900">Preferences</h3>
+        <p className="mt-0.5 text-[11px] font-medium text-slate-400">
+          Audio sensitivity and language settings.
+        </p>
       </div>
     </DashboardLayout>
   )
