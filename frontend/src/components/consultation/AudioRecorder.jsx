@@ -8,12 +8,15 @@ import { AlertTriangle, Mic, Pause, Play, RefreshCw, Send, Volume2 } from 'lucid
  * 1. Web Audio API pipeline with hardware acoustic filtering (echoCancellation, noiseSuppression, autoGainControl).
  * 2. Real-time 16kHz mono downsampling with Float32 -> 16-bit Linear PCM (Int16Array) quantization.
  * 3. 50ms-100ms chunking cadence (2048 sample buffer = ~46-128ms) feeding useWebSocket.sendAudioChunk.
- * 4. Recording State Machine: IDLE -> RECORDING -> PROCESSING.
- * 5. Live Audio Waveform / VU Meter powered by AnalyserNode.getByteFrequencyData() for visual mic verification.
+ * 4. Recording State Machine: IDLE -> RECORDING -> PAUSED -> PROCESSING.
+ * 5. High-performance HTML5 <canvas> frequency-bar visualizer driven by a requestAnimationFrame loop
+ *    — all draw calls happen imperatively on the canvas; zero React re-renders per frame.
  * 6. Primary Action CTAs: "Start Consultation", "Process Consultation", "New Patient (Reset)".
  */
 
-// Downsamples input Float32Array from hardware sampleRate (e.g. 44.1k/48k) to 16,000 Hz
+// ─── Utility helpers ───────────────────────────────────────────────────────────
+
+/** Downsamples Float32Array from hardware sampleRate to 16 000 Hz */
 function downsampleTo16k(input, fromRate) {
   if (fromRate === 16000) return input
   const ratio = fromRate / 16000
@@ -26,12 +29,12 @@ function downsampleTo16k(input, fromRate) {
   return result
 }
 
-// Converts Float32Array [-1.0, 1.0] samples to 16-bit signed Linear PCM (little-endian byte buffer)
+/** Converts Float32Array [-1, 1] samples to 16-bit signed Linear PCM (little-endian) */
 function floatTo16BitPCM(floatSamples) {
   const pcm = new Int16Array(floatSamples.length)
   for (let i = 0; i < floatSamples.length; i++) {
     const s = Math.max(-1, Math.min(1, floatSamples[i]))
-    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff
   }
   return pcm.buffer
 }
@@ -52,6 +55,16 @@ function micErrorMessage(err) {
 const formatTime = (s) =>
   `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
+// ─── Visualizer constants ──────────────────────────────────────────────────────
+const BAR_COUNT = 48          // number of frequency bars drawn on canvas
+const BAR_GAP = 2             // px gap between bars
+const COLOR_NORMAL = '#2dd4bf' // teal-400
+const COLOR_HIGH = '#f43f5e'  // rose-500
+const COLOR_IDLE = '#1e293b'  // slate-800
+const HIGH_THRESHOLD = 0.75   // fraction of bar height above which colour switches to red
+
+// ─── Component ─────────────────────────────────────────────────────────────────
+
 export default function AudioRecorder({
   onStart,
   onChunk,
@@ -60,35 +73,122 @@ export default function AudioRecorder({
   disabled = false,
   isProcessing = false,
 }) {
-  // ---- 1. Recording State Machine: IDLE -> RECORDING -> PROCESSING ----
+  // ---- 1. Recording State Machine: IDLE -> RECORDING -> PAUSED ----
   const [internalState, setInternalState] = useState('IDLE') // 'IDLE' | 'RECORDING' | 'PAUSED'
   const [error, setError] = useState('')
   const [seconds, setSeconds] = useState(0)
-  const [vuLevels, setVuLevels] = useState(new Array(16).fill(0)) // 16 frequency bars for VU meter
 
-  // Effective state accounts for parent isProcessing state without triggering cascading renders
+  // Effective state accounts for parent isProcessing without cascading renders
   const recordingState = isProcessing ? 'PROCESSING' : internalState
 
-  // Internal Web Audio API references
+  // ---- 2. Web Audio API refs (never stored in state → no re-render on update) ----
   const streamRef = useRef(null)
   const audioContextRef = useRef(null)
   const processorRef = useRef(null)
   const analyserRef = useRef(null)
   const animationFrameRef = useRef(null)
-  const stateRef = useRef('IDLE')
 
+  // Mirror of recordingState for use inside rAF closure (avoids stale closure)
+  const stateRef = useRef('IDLE')
   useEffect(() => {
     stateRef.current = recordingState
   }, [recordingState])
 
-  // Timer while recording
+  // ---- 3. Canvas ref for the high-performance visualizer ----
+  const canvasRef = useRef(null)
+
+  // ---- 4. Timer while recording ----
   useEffect(() => {
     if (recordingState !== 'RECORDING') return
     const id = setInterval(() => setSeconds((s) => s + 1), 1000)
     return () => clearInterval(id)
   }, [recordingState])
 
-  // ---- 2. Audio Pipeline Teardown & Resource Cleanup ----
+  // ---- 5. Canvas draw helper (pure imperative — zero React re-renders) ----
+  const drawFrame = useCallback((analyser, dataArray) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    const W = canvas.width
+    const H = canvas.height
+
+    // Clear
+    ctx.clearRect(0, 0, W, H)
+
+    const isRecording = stateRef.current === 'RECORDING'
+
+    if (!isRecording) {
+      // Draw flat idle bars
+      const barW = (W - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT
+      ctx.fillStyle = COLOR_IDLE
+      for (let i = 0; i < BAR_COUNT; i++) {
+        const x = i * (barW + BAR_GAP)
+        ctx.fillRect(x, H - 4, barW, 4)
+      }
+      return
+    }
+
+    // Pull live frequency data from the AnalyserNode
+    analyser.getByteFrequencyData(dataArray)
+
+    const barW = (W - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT
+    const step = Math.floor(dataArray.length / BAR_COUNT)
+
+    for (let i = 0; i < BAR_COUNT; i++) {
+      const freqValue = dataArray[i * step] ?? 0
+      const fraction = freqValue / 255           // 0.0 – 1.0
+      const barH = Math.max(4, fraction * H)     // minimum 4 px so bars are always visible
+      const x = i * (barW + BAR_GAP)
+      const y = H - barH
+
+      // Gradient: teal for normal, rose for loud peaks
+      ctx.fillStyle = fraction > HIGH_THRESHOLD ? COLOR_HIGH : COLOR_NORMAL
+      ctx.globalAlpha = 0.9
+
+      // Rounded top corners via path
+      const r = Math.min(barW / 2, 3)
+      ctx.beginPath()
+      ctx.moveTo(x + r, y)
+      ctx.lineTo(x + barW - r, y)
+      ctx.quadraticCurveTo(x + barW, y, x + barW, y + r)
+      ctx.lineTo(x + barW, H)
+      ctx.lineTo(x, H)
+      ctx.lineTo(x, y + r)
+      ctx.quadraticCurveTo(x, y, x + r, y)
+      ctx.closePath()
+      ctx.fill()
+    }
+
+    ctx.globalAlpha = 1
+  }, [])
+
+  // ---- 6. rAF loop — starts when recording begins, stops when it pauses/stops ----
+  const startVisualizerLoop = useCallback(
+    (analyser) => {
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+
+      const loop = () => {
+        if (stateRef.current !== 'RECORDING') {
+          // Draw one last idle frame and exit the loop
+          drawFrame(analyser, dataArray)
+          animationFrameRef.current = null
+          return
+        }
+        drawFrame(analyser, dataArray)
+        animationFrameRef.current = requestAnimationFrame(loop)
+      }
+
+      // Cancel any existing loop before starting a new one
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+      animationFrameRef.current = requestAnimationFrame(loop)
+    },
+    [drawFrame],
+  )
+
+  // ---- 7. Full audio pipeline teardown & resource cleanup ----
   const stopAudioPipeline = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
@@ -110,40 +210,40 @@ export default function AudioRecorder({
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
     }
-    setVuLevels(new Array(16).fill(0))
+
+    // Draw idle state on canvas
+    const canvas = canvasRef.current
+    if (canvas) {
+      const ctx = canvas.getContext('2d')
+      const W = canvas.width
+      const H = canvas.height
+      ctx.clearRect(0, 0, W, H)
+      const barW = (W - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT
+      ctx.fillStyle = COLOR_IDLE
+      for (let i = 0; i < BAR_COUNT; i++) {
+        ctx.fillRect(i * (barW + BAR_GAP), H - 4, barW, 4)
+      }
+    }
   }, [])
 
+  // Cleanup on unmount
   useEffect(() => () => stopAudioPipeline(), [stopAudioPipeline])
 
-  // ---- 3. Live Audio Waveform / VU Meter Animation Loop ----
-  const startVuMeter = useCallback((analyser) => {
-    const dataArray = new Uint8Array(analyser.frequencyBinCount)
-
-    const updateMeter = () => {
-      if (stateRef.current !== 'RECORDING') {
-        setVuLevels(new Array(16).fill(0))
-        return
-      }
-
-      analyser.getByteFrequencyData(dataArray)
-
-      // Sample 16 discrete bands across the frequency spectrum
-      const barCount = 16
-      const step = Math.floor(dataArray.length / barCount)
-      const newLevels = []
-      for (let i = 0; i < barCount; i++) {
-        const val = dataArray[i * step] || 0
-        newLevels.push(Math.min(100, Math.round((val / 255) * 100)))
-      }
-      setVuLevels(newLevels)
-
-      animationFrameRef.current = requestAnimationFrame(updateMeter)
+  // Draw initial idle bars once canvas mounts
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const W = canvas.width
+    const H = canvas.height
+    const barW = (W - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT
+    ctx.fillStyle = COLOR_IDLE
+    for (let i = 0; i < BAR_COUNT; i++) {
+      ctx.fillRect(i * (barW + BAR_GAP), H - 4, barW, 4)
     }
-
-    updateMeter()
   }, [])
 
-  // ---- 4. Acoustic Capture Initialization ----
+  // ---- 8. Acoustic Capture Initialization ----
   const startConsultation = async () => {
     setError('')
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -152,7 +252,7 @@ export default function AudioRecorder({
     }
 
     try {
-      // Hardware acoustic filters: echoCancellation, noiseSuppression, autoGainControl
+      // Hardware acoustic filters
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -165,34 +265,33 @@ export default function AudioRecorder({
 
       await onStart?.()
 
-      // Instantiates Web Audio API context
+      // Instantiate Web Audio API context
       const AudioCtx = window.AudioContext || window.webkitAudioContext
       const audioContext = new AudioCtx()
       audioContextRef.current = audioContext
 
+      // Always resume — browsers suspend AudioContext until a user gesture
       if (audioContext.state === 'suspended') {
         await audioContext.resume()
       }
 
       const source = audioContext.createMediaStreamSource(stream)
 
-      // AnalyserNode for live VU meter frequency analysis
+      // AnalyserNode — higher fftSize = more frequency bins = richer bars
       const analyser = audioContext.createAnalyser()
-      analyser.fftSize = 64
-      analyser.smoothingTimeConstant = 0.8
+      analyser.fftSize = 256                // 128 usable bins — plenty for BAR_COUNT=48
+      analyser.smoothingTimeConstant = 0.75 // slight temporal smoothing (0=raw, 1=frozen)
       analyserRef.current = analyser
       source.connect(analyser)
 
-      // Slicing & Cadence: bufferSize 2048 gives ~46ms at 44.1k/48k or ~128ms at 16k
+      // ScriptProcessor for PCM chunking (bufferSize 2048 ≈ 46 ms @ 44.1 kHz)
       const processor = audioContext.createScriptProcessor(2048, 1, 1)
       processorRef.current = processor
 
       processor.onaudioprocess = (e) => {
         if (stateRef.current !== 'RECORDING') return
         const channelData = e.inputBuffer.getChannelData(0)
-        // Downsample to standard 16kHz
         const downsampled = downsampleTo16k(channelData, audioContext.sampleRate)
-        // Quantize to 16-bit signed Linear PCM
         const pcmBuffer = floatTo16BitPCM(downsampled)
         onChunk?.(pcmBuffer)
       }
@@ -201,8 +300,9 @@ export default function AudioRecorder({
       processor.connect(audioContext.destination)
 
       setSeconds(0)
-      setInternalState('RECORDING')
-      startVuMeter(analyser)
+      setInternalState('RECORDING')   // stateRef syncs via useEffect
+      // Small delay so stateRef.current is 'RECORDING' before the first loop tick
+      setTimeout(() => startVisualizerLoop(analyser), 0)
     } catch (err) {
       stopAudioPipeline()
       setError(micErrorMessage(err))
@@ -211,9 +311,11 @@ export default function AudioRecorder({
 
   const pauseRecording = () => {
     setInternalState('PAUSED')
+    // Suspend AudioContext — also silences ScriptProcessor callbacks
     if (audioContextRef.current?.state === 'running') {
       audioContextRef.current.suspend()
     }
+    // rAF loop will self-terminate on next tick because stateRef.current != 'RECORDING'
   }
 
   const resumeRecording = () => {
@@ -222,7 +324,7 @@ export default function AudioRecorder({
       audioContextRef.current.resume()
     }
     if (analyserRef.current) {
-      startVuMeter(analyserRef.current)
+      setTimeout(() => startVisualizerLoop(analyserRef.current), 0)
     }
   }
 
@@ -263,44 +365,34 @@ export default function AudioRecorder({
         </span>
       </div>
 
-      {/* Live Audio Waveform / VU Meter */}
+      {/* ── Live Canvas Waveform Visualizer ── */}
       <div className="mt-4 rounded-lg border border-slate-800/80 bg-ink/70 p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
           <span className="flex items-center gap-1.5 font-medium">
             <Volume2 size={14} className={isRecording ? 'text-brand' : 'text-slate-500'} />
-            Acoustic Waveform / VU Meter
+            Acoustic Waveform
           </span>
           {isRecording ? (
             <span className="flex items-center gap-1.5 font-semibold text-rose-400">
               <span className="h-2 w-2 animate-ping rounded-full bg-rose-500" /> REC ACTIVE
             </span>
           ) : (
-            <span className="text-slate-500">Muted</span>
+            <span className="text-slate-500">{isPaused ? 'Paused' : 'Muted'}</span>
           )}
         </div>
 
-        {/* 16-Band Visualizer Bars */}
-        <div className="flex h-12 items-end justify-between gap-1 px-1">
-          {vuLevels.map((level, idx) => {
-            const height = isRecording ? Math.max(8, level) : 6
-            const isHigh = level > 75
-            return (
-              <div
-                key={idx}
-                className="flex-1 rounded-t transition-all duration-75"
-                style={{
-                  height: `${height}%`,
-                  backgroundColor: !isRecording
-                    ? '#334155'
-                    : isHigh
-                      ? '#f43f5e'
-                      : '#2dd4bf',
-                  opacity: isRecording ? 0.9 : 0.3,
-                }}
-              />
-            )
-          })}
-        </div>
+        {/*
+          Canvas dimensions are set via HTML attributes (physical pixels).
+          CSS width:100% stretches it to fill the container responsively.
+          height:64px matches the h-16 visual slot.
+        */}
+        <canvas
+          ref={canvasRef}
+          width={800}
+          height={64}
+          className="block h-16 w-full rounded"
+          aria-label="Live microphone frequency visualizer"
+        />
       </div>
 
       {/* Primary Action CTAs */}
@@ -317,7 +409,7 @@ export default function AudioRecorder({
 
         {(isRecording || isPaused) && (
           <>
-            {/* Primary Action CTA: Process Consultation */}
+            {/* Process Consultation */}
             <button
               onClick={processConsultation}
               className="flex items-center gap-2 rounded-full bg-brand px-6 py-3 font-semibold text-ink shadow-lg shadow-teal-500/20 transition hover:bg-brand/90"
@@ -325,7 +417,7 @@ export default function AudioRecorder({
               <Send size={18} /> Process Consultation
             </button>
 
-            {/* Secondary Controls: Pause / Resume */}
+            {/* Pause / Resume */}
             {isRecording ? (
               <button
                 onClick={pauseRecording}
@@ -344,7 +436,7 @@ export default function AudioRecorder({
           </>
         )}
 
-        {/* New Patient (Reset) CTA */}
+        {/* New Patient (Reset) */}
         <button
           onClick={resetSession}
           disabled={isRecording}
