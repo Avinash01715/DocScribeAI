@@ -6,17 +6,17 @@ import VoicePlayer from './VoicePlayer'
  * WhatsAppModal.jsx - Multimodal Dispatch Orchestrator
  *
  * Implements specifications:
- * 1. Triggered by "Send Prescription" clinician action.
- * 2. Input Validation: Normalizes patient mobile numbers to Indian E.164 (+91 prefix, 10 digits).
- * 3. Dispatch Execution: Executes POST request to /api/v1/whatsapp/dispatch.
- * 4. Deep Link Trigger: Opens universal link (https://wa.me/{phone}?text=...) in new context.
- * 5. PDF Artifact Preview: Displays embedded PDF viewer with direct print/download controls.
- * 6. Multimodal delivery: Integrates VoicePlayer with spoken script accordion preview.
+ * 1. Triggered by "Send Prescription" clinician action[cite: 7, 8].
+ * 2. Normalizes patient mobile numbers to Indian E.164 (+91 prefix, 10 digits).
+ * 3. Handles in-memory MP3 (audio/mpeg) packaging for native WhatsApp Web Share[cite: 4, 7].
+ * 4. Dual-path dispatch: Uses Web Share Level 2 on mobile; falls back to wa.me deep links on desktop[cite: 4, 7].
+ * 5. PDF Artifact Preview: Embedded viewer with print/download controls[cite: 7].
+ * 6. Multimodal delivery: Integrates VoicePlayer with spoken script accordion preview[cite: 7].
  */
 
-const DEFAULT_COUNTRY_CODE = '91' // India dialing code
+const DEFAULT_COUNTRY_CODE = '91' // India dialing code[cite: 7]
 
-// Normalizes input to 10-digit Indian mobile number with +91 E.164 format
+// Normalizes input to 10-digit Indian mobile number with +91 E.164 format[cite: 7]
 function normalizeIndianPhone(raw) {
   const digits = String(raw || '').replace(/\D/g, '').replace(/^0+/, '')
   if (digits.length === 10) return `${DEFAULT_COUNTRY_CODE}${digits}`
@@ -32,22 +32,28 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
   const [audioFile, setAudioFile] = useState(null)
   const [showPdfEmbed, setShowPdfEmbed] = useState(false)
 
-  const audioUrl = result?.voice_note?.audio_url || null
-  const pdfUrl = result?.pdf_receipt?.url || null
-  const deepLink = result?.whatsapp_deep_link
-  const scriptText = result?.voice_note?.script || ''
+  // Standardize property resolution across backend response variations[cite: 4]
+  const audioUrl = result?.voice_note?.audio_url || result?.audio_url || null
+  const pdfUrl = result?.pdf_receipt?.url || result?.pdf_url || null
+  const deepLink = result?.whatsapp_deep_link || null
+  const scriptText = result?.voice_note?.script || result?.narrative_text || ''
 
   const handleClose = () => {
     setError('')
     setResult(null)
     setShowPdfEmbed(false)
+    setAudioFile(null)
     onClose()
   }
 
-  // Pre-fetch audio as Blob for mobile Web Share API dispatch
+  // Pre-fetch audio as Blob for mobile Web Share API dispatch (MP3 format)[cite: 4, 7]
   useEffect(() => {
-    if (!audioUrl) return
+    if (!audioUrl) {
+      setAudioFile(null)
+      return
+    }
     let cancelled = false
+
     fetch(audioUrl)
       .then((r) => {
         if (!r.ok) throw new Error('Audio could not be fetched.')
@@ -55,20 +61,24 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
       })
       .then((blob) => {
         if (cancelled) return
-        const ext = audioUrl.split('?')[0].split('.').pop() || 'wav'
-        setAudioFile(
-          new File([blob], `prescription_voice_note.${ext}`, {
-            type: blob.type || 'audio/wav',
-          })
-        )
+
+        // Enforce audio/mpeg MIME type and .mp3 container for WhatsApp compatibility[cite: 4]
+        const cleanBlob = blob.type === 'audio/mpeg' ? blob : new Blob([blob], { type: 'audio/mpeg' })
+        const file = new File([cleanBlob], 'prescription_voice_note.mp3', {
+          type: 'audio/mpeg',
+        })
+        setAudioFile(file)
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.warn('Could not prepare local audio file for Web Share:', err)
+      })
+
     return () => {
       cancelled = true
     }
   }, [audioUrl])
 
-  // Keyboard accessibility: Escape key closes modal
+  // Keyboard accessibility: Escape key closes modal[cite: 7]
   useEffect(() => {
     if (!open) return
     const onKey = (e) => e.key === 'Escape' && handleClose()
@@ -84,7 +94,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
     typeof navigator.canShare === 'function' &&
     navigator.canShare({ files: [audioFile] })
 
-  // Executes multimodal dispatch pipeline on backend
+  // Executes multimodal dispatch pipeline on backend[cite: 7]
   const handleDispatch = async () => {
     setBusy(true)
     setError('')
@@ -98,17 +108,27 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
     }
   }
 
-  // Native share sheet trigger for mobile devices
-  const shareAudioFile = async () => {
-    try {
-      await navigator.share({
-        files: [audioFile],
-        title: 'Prescription Voice Note',
-      })
-    } catch (e) {
-      if (e.name !== 'AbortError') {
-        setError('Share sheet failed. Please download audio and dispatch manually.')
+  // Dual-path dispatcher: invokes native OS share sheet if supported; falls back to wa.me[cite: 4, 7]
+  const shareVoiceNote = async () => {
+    if (canShareFile) {
+      try {
+        await navigator.share({
+          files: [audioFile],
+          title: 'Prescription Voice Note',
+          text: scriptText || 'Namaste, aapki prescription audio note taiyyar hai.',
+        })
+        return
+      } catch (e) {
+        if (e.name === 'AbortError') return
+        console.warn('Native share failed, falling back to wa.me link:', e)
       }
+    }
+
+    // Desktop/Unsupported fallback: launch wa.me deep link[cite: 4]
+    if (deepLink) {
+      window.open(deepLink, '_blank', 'noopener,noreferrer')
+    } else {
+      setError('Direct sharing not supported on this browser. Use the download buttons below.')
     }
   }
 
@@ -181,7 +201,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
         >
           {busy && <Loader2 size={18} className="animate-spin" />}
           {busy
-            ? 'Generating Timbre Audio & FPDF2 PDF…'
+            ? 'Generating Timbre MP3 & FPDF2 PDF…'
             : result
               ? 'Regenerate Multimodal Package'
               : 'Generate Voice Note & PDF Prescription'}
@@ -211,20 +231,20 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
             {/* Mobile Share Sheet / Direct Audio Download */}
             {audioUrl && (
               <div className="flex flex-wrap gap-2.5">
-                {canShareFile && (
-                  <button
-                    onClick={shareAudioFile}
-                    className="flex items-center gap-2 rounded-full bg-teal-500 px-4 py-2 text-xs font-semibold text-ink hover:bg-teal-400"
-                  >
-                    <Share2 size={15} /> Share Voice Note Directly
-                  </button>
-                )}
+                <button
+                  onClick={shareVoiceNote}
+                  className="flex items-center gap-2 rounded-full bg-teal-500 px-4 py-2 text-xs font-semibold text-ink hover:bg-teal-400 transition"
+                >
+                  <Share2 size={15} />
+                  {canShareFile ? 'Share Voice Note Directly' : 'Send via WhatsApp Web'}
+                </button>
+
                 <a
                   href={audioUrl}
-                  download="patient_instructions.wav"
-                  className="flex items-center gap-1.5 rounded-full border border-slate-700 px-4 py-2 text-xs text-slate-300 hover:bg-white/5"
+                  download="prescription_voice_note.mp3"
+                  className="flex items-center gap-1.5 rounded-full border border-slate-700 px-4 py-2 text-xs text-slate-300 hover:bg-white/5 transition"
                 >
-                  <Download size={14} /> Download Audio WAV
+                  <Download size={14} /> Download Audio MP3
                 </a>
               </div>
             )}
@@ -272,7 +292,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
               )}
             </div>
 
-            {/* Universal Deep Link Action (https://wa.me/{phone}?text=...) */}
+            {/* Universal Deep Link Action (https://wa.me/{phone}?text=...)[cite: 7] */}
             {deepLink && (
               <div className="pt-1">
                 <a
@@ -286,7 +306,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
                   <ExternalLink size={14} />
                 </a>
                 <p className="mt-2 text-center text-[11px] text-slate-400">
-                  Transmits structured medication breakdown, PDF receipt link, and synthesized Timbre audio link directly to the patient's WhatsApp chat.
+                  Transmits structured medication breakdown, PDF receipt link, and synthesized Timbre audio link directly to the patient's WhatsApp chat[cite: 7].
                 </p>
               </div>
             )}
