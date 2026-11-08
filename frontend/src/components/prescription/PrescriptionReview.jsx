@@ -1,29 +1,18 @@
-import { Activity, CheckCircle2, FileText, Plus, ShieldCheck, Thermometer, User } from 'lucide-react'
+import { CheckCircle2, FileText, Plus, ShieldCheck, Thermometer, User } from 'lucide-react'
 import MedicineCard from './MedicineCard'
 import { missingFields } from '../../utils/prescription'
 
 /**
- * PrescriptionReview.jsx - Structured Clinical Summary & Formulary Editor
- *
- * Implements specifications:
- * 1. Patient Summary Header:
- *    - Patient demographic profile (Name).
- *    - Detected Vitals (Temperature field with thermometer indicator).
- *    - Chief complaints list.
- * 2. Clinical Diagnosis Banner:
- *    - Prominent clinical assessment callout with high-contrast Medical Teal highlighting.
- * 3. Dynamic Medication Grid rendering MedicineCard components with RapidFuzz confidence scores.
- * 4. Human-in-the-loop review and approval workflow.
+ * PrescriptionReview.jsx - Structured Clinical Summary & Formulary Editor (Minimalist Light Clinical)
  */
 
 const inputCls =
-  'w-full rounded-lg border border-slate-800 bg-ink px-3 py-2 text-sm text-slate-100 outline-none focus:border-teal-400'
+  'w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600/20'
 
 const toLines = (arr) => (arr || []).join('\n')
 const fromLines = (text) => text.split('\n')
 
 export default function PrescriptionReview({ data, onChange, approved, onApprove }) {
-  // Extract or default vitals
   const temperature =
     data.patient_info?.temperature ||
     data.patient_info?.vitals?.temperature ||
@@ -80,69 +69,55 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
     data.prescription.length > 0 && missing.length === 0 && pendingReview === 0
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-panel p-5">
-      <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-100">
-            Structured Prescription Grid & Review
-          </h2>
-          <p className="text-xs text-slate-400">
-            AI extracted via Evon LLM & verified with RapidFuzz formulary matching.
-          </p>
-        </div>
-        <span className="flex items-center gap-1.5 text-xs text-teal-400 bg-teal-500/10 border border-teal-500/20 px-2.5 py-1 rounded-full font-medium">
-          <FileText size={13} /> Clinical DTO Ready
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h2 className="text-base font-bold text-slate-900 tracking-tight">
+          Prescription Draft
+        </h2>
+        <span className="flex items-center gap-1 text-xs text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-full font-bold">
+          <FileText size={12} className="text-teal-600" /> Ready for Review
         </span>
       </div>
 
-      {/* ---- 1. Patient Summary Header & Detected Vitals ---- */}
-      <div className="mt-4 rounded-xl border border-slate-800/80 bg-ink/40 p-4">
-        <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-teal-400">
-          <User size={14} /> Patient Summary & Ambient Vitals
+      {/* 1. Patient Info */}
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4 space-y-3">
+        <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">
+          <User size={13} className="text-teal-600" /> Patient Info & Vitals
         </h3>
 
-        <div className="mt-3 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {/* Patient Name */}
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-400">
+            <span className="mb-1 block text-xs font-bold text-slate-700">
               Patient Name
             </span>
             <input
               value={data.patient_info?.name || ''}
               onChange={(e) => setPatient({ name: e.target.value })}
               className={inputCls}
-              placeholder="e.g. Ramesh"
+              placeholder="e.g. Ramesh Kumar"
             />
           </label>
 
-          {/* Detected Vitals: Temperature */}
+          {/* Temperature */}
           <label className="block">
-            <span className="mb-1 flex items-center gap-1 text-xs font-medium text-amber-400">
-              <Thermometer size={13} /> Detected Body Temperature
+            <span className="mb-1 flex items-center gap-1 text-xs font-bold text-slate-700">
+              <Thermometer size={12} className="text-amber-600" /> Temperature
             </span>
             <input
               value={temperature}
               onChange={(e) => setPatient({ temperature: e.target.value })}
-              className={`${inputCls} border-amber-500/40 text-amber-300 font-mono font-medium`}
-              placeholder="e.g. 101.4°F"
+              className={`${inputCls} border-amber-300 bg-amber-50/40 text-amber-900 font-mono font-bold`}
+              placeholder="101.4°F"
             />
           </label>
-
-          {/* Vitals Summary Badge */}
-          <div className="flex flex-col justify-end">
-            <div className="rounded-lg border border-slate-800 bg-ink/60 px-3 py-2 text-xs text-slate-300">
-              <span className="flex items-center gap-1 text-teal-300 font-medium">
-                <Activity size={13} /> Ambient Vitals Monitored
-              </span>
-              <span className="text-[11px] text-slate-400">Febrile symptoms detected from dialogue</span>
-            </div>
-          </div>
         </div>
 
-        {/* Chief Complaints */}
-        <label className="mt-3 block">
-          <span className="mb-1 block text-xs font-medium text-slate-400">
-            Chief Complaints (One line per symptom)
+        {/* Complaints */}
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold text-slate-700">
+            Chief Complaints
           </span>
           <textarea
             rows={2}
@@ -154,47 +129,45 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
         </label>
       </div>
 
-      {/* ---- 2. Highlighted Clinical Diagnosis Banner ---- */}
-      <div className="mt-4 rounded-xl border border-teal-500/40 bg-teal-500/10 p-4">
-        <span className="block text-xs font-semibold uppercase tracking-wider text-teal-300">
-          Clinical Diagnosis Banner
+      {/* 2. Diagnosis */}
+      <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-3 sm:p-4">
+        <span className="block text-xs font-bold uppercase tracking-wider text-teal-800 mb-1.5">
+          Diagnosis
         </span>
-        <div className="mt-1.5 flex items-center gap-2">
-          <input
-            value={data.clinical_findings?.diagnosis || ''}
-            onChange={(e) =>
-              onChange({
-                ...data,
-                clinical_findings: {
-                  ...data.clinical_findings,
-                  diagnosis: e.target.value,
-                },
-              })
-            }
-            placeholder="Provisional Diagnosis (e.g. Acute Upper Respiratory Tract Infection)"
-            className="w-full rounded-lg border border-teal-500/40 bg-ink/80 px-3 py-2 text-base font-semibold text-teal-200 outline-none focus:border-teal-300"
-          />
-        </div>
+        <input
+          value={data.clinical_findings?.diagnosis || ''}
+          onChange={(e) =>
+            onChange({
+              ...data,
+              clinical_findings: {
+                ...data.clinical_findings,
+                diagnosis: e.target.value,
+              },
+            })
+          }
+          placeholder="Diagnosis (e.g. Acute Upper Respiratory Tract Infection)"
+          className="w-full rounded-xl border border-teal-300 bg-white px-3 py-2 text-xs sm:text-sm font-bold text-slate-900 outline-none focus:border-teal-600"
+        />
       </div>
 
-      {/* ---- 3. Medication Dynamic Cards & Table ---- */}
-      <div className="mt-6">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <h3 className="text-sm font-semibold text-teal-400">
-            Prescription Medications ({data.prescription.length})
+      {/* 3. Medications */}
+      <div>
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+            Medicines ({data.prescription.length})
           </h3>
           <button
             onClick={addMedicine}
-            className="flex items-center gap-1.5 rounded-full border border-teal-500/40 bg-teal-500/10 px-3 py-1 text-xs font-semibold text-teal-300 hover:bg-teal-500/20 transition"
+            className="flex items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 py-1 text-xs font-bold text-teal-800 hover:bg-teal-100 transition shadow-2xs"
           >
-            <Plus size={14} /> Add Medicine
+            <Plus size={13} className="text-teal-600" /> Add Medicine
           </button>
         </div>
 
-        <div className="mt-3 space-y-3">
+        <div className="space-y-2.5">
           {data.prescription.length === 0 && (
-            <p className="rounded-lg border border-slate-800 p-4 text-center text-sm text-slate-500">
-              Koi dawai nahi mili. "Add Medicine" se dawai jodein.
+            <p className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-xs font-semibold text-slate-500">
+              No medicines yet. Click "Add Medicine".
             </p>
           )}
           {data.prescription.map((m) => (
@@ -208,42 +181,42 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
         </div>
       </div>
 
-      {/* Clinical Advice */}
-      <label className="mt-5 block">
-        <span className="mb-1 block text-sm font-semibold text-teal-400">
-          Physician Advice & Regimen
+      {/* 4. Advice */}
+      <label className="block">
+        <span className="mb-1 block text-xs font-bold text-slate-700">
+          Advice & Instructions
         </span>
         <textarea
           rows={2}
           value={data.advice || ''}
           onChange={(e) => onChange({ ...data, advice: e.target.value })}
           className={inputCls}
-          placeholder="e.g. Drink plenty of warm water, avoid cold fluids, complete the 3-day course."
+          placeholder="Drink warm water, complete the course."
         />
       </label>
 
-      {/* ---- 4. Human-in-the-Loop Approval Action ---- */}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
+      {/* 5. Approval Action */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
         {approved ? (
-          <div className="flex items-center gap-2 text-sm font-semibold text-teal-300">
-            <CheckCircle2 size={18} className="text-teal-400" />
-            Approved by Clinician. Ready for Multimodal WhatsApp Dispatch.
+          <div className="flex items-center gap-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 rounded-xl px-3 py-2">
+            <CheckCircle2 size={15} className="text-emerald-600" />
+            Approved by Doctor
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={onApprove}
               disabled={!canApprove}
-              className="flex items-center gap-2 rounded-full bg-teal-500 px-6 py-2.5 font-semibold text-ink shadow-lg shadow-teal-500/20 hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-40 transition"
+              className="flex items-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-700 disabled:opacity-40 transition"
             >
-              <ShieldCheck size={18} /> Approve Clinical Prescription
+              <ShieldCheck size={15} /> Approve Prescription
             </button>
             {!canApprove && (
-              <p className="text-xs text-amber-300">
+              <p className="text-xs font-bold text-amber-800">
                 {pendingReview > 0
-                  ? `${pendingReview} medicine entry needs verification. `
+                  ? `${pendingReview} item needs verification. `
                   : ''}
-                {missing.length > 0 ? 'Please complete required fields.' : ''}
+                {missing.length > 0 ? 'Fill required fields.' : ''}
               </p>
             )}
           </div>

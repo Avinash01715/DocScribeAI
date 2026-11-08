@@ -11,3 +11,6 @@ google-genai>=2.0.0
 indic_transliteration>=2.3.82
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# Added for audio processing support
+pydub>=0.25.1

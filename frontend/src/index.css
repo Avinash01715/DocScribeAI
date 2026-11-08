@@ -1,45 +1,53 @@
 @import "tailwindcss";
 
 /**
- * UI/UX Theme Specifications (Tailwind CSS)
+ * DocScribeAI – Minimalist Light Clinical Theme
  *
- * Color Tokens:
- * - Backgrounds: slate-950 (#020617), slate-900 (#0f172a), slate-800 (#1e293b)
- * - Primary Accents (Medical Teal): teal-500 (#14b8a6), teal-400 (#2dd4bf)
- * - Status Accents: emerald-400 (#34d399), amber-400 (#fbbf24), rose-500 (#f43f5e)
- * - Typography: Clean sans-serif (Inter) with monospace tabular fonts (JetBrains Mono)
+ * Strict High-Contrast WCAG AAA Readability Standards:
+ * - Canvas Background:   #f1f5f9 (slate-100 soft clinical background)
+ * - Card / Panel Surface:#ffffff (pure crisp white)
+ * - Border Dividers:     #cbd5e1 (slate-300 defined, visible borders)
+ * - Text Primary:        #0f172a (slate-900 jet ink - 100% readable)
+ * - Text Secondary:      #334155 (slate-700 dark body text)
+ * - Text Labels/Muted:   #475569 (slate-600 high-contrast secondary labels)
+ * - Clinical Teal Brand: #0d9488 (teal-600 primary)
+ * - Clinical Teal Hover: #0f766e (teal-700 hover)
+ * - Brand Accent Tint:   #f0fdfa (teal-50 soft accent)
  */
 @theme {
-  --color-ink: #020617;        /* Deep slate-950 background */
-  --color-panel: #0f172a;      /* Slate-900 card and panel surfaces */
-  --color-panel-border: #1e293b; /* Slate-800 borders and separators */
-  --color-brand-dark: #0f766e; /* Deep medical teal */
-  --color-brand: #14b8a6;      /* Medical teal-500 primary buttons/waveform */
-  --color-brand-light: #2dd4bf;/* Teal-400 hover accents */
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --color-ink:          #f1f5f9;
+  --color-surface:      #ffffff;
+  --color-panel:        #ffffff;
+  --color-border:       #cbd5e1;
+  --color-brand:        #0d9488;
+  --color-brand-hover:  #0f766e;
+  --color-brand-dark:   #115e59;
+  --color-text:         #0f172a;
+  --color-muted:        #475569;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
 body {
-  background-color: var(--color-ink);
-  color: #f1f5f9;
+  background-color: #f1f5f9;
+  color: #0f172a;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbars for clinical dialogue viewport */
+/* Crisp light clinical scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #f1f5f9;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #94a3b8;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #64748b;
 }

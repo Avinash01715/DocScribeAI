@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Bell } from 'lucide-react'
+import { Stethoscope, Bell, Sparkles } from 'lucide-react'
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -13,23 +13,53 @@ export default function Navbar() {
 
   return (
     <header
-      className={`sticky top-0 z-40 flex items-center justify-between px-4 py-4 md:px-6
-        border-b backdrop-blur-xl backdrop-saturate-150 transition-all duration-300
-        ${scrolled
-          ? 'border-white/10 bg-ink/60 shadow-lg shadow-black/20'
-          : 'border-transparent bg-ink/30'}`}
+      className={`fixed top-0 inset-x-0 z-40 h-14 border-b border-slate-200 bg-white flex items-center transition-all duration-200 ${
+        scrolled ? 'shadow-2xs' : ''
+      }`}
     >
-      <div className="flex items-center gap-2 text-lg font-semibold">
-        <Activity className="h-6 w-6 text-brand" />
-        DocScribeAi
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="hidden rounded-full bg-emerald-500/15 px-3 py-1 text-sm font-medium text-emerald-400 md:inline">
-          Online
+      {/* Left Box: Matches exact sidebar width (w-64) with matching border-r on web */}
+      <div className="w-auto md:w-64 shrink-0 h-full md:border-r md:border-slate-200 px-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50 border border-teal-200 text-teal-600 shadow-2xs">
+            <Stethoscope className="h-4.5 w-4.5" strokeWidth={2.2} />
+          </div>
+          <div className="text-base tracking-tight select-none">
+            <span className="font-extrabold text-slate-900">DocScribe</span>
+            <span className="font-extrabold text-teal-600 ml-0.5">AI</span>
+          </div>
+        </div>
+
+        {/* Mobile: Gnani.ai Models in short right beside header */}
+        <span className="text-[10px] font-semibold text-teal-700 md:hidden flex items-center gap-1 pl-2">
+          <Sparkles size={10} className="text-teal-600" /> Gnani.ai
         </span>
-        <button aria-label="Notifications" className="rounded-full p-2 transition hover:bg-white/10">
-          <Bell className="h-5 w-5" />
-        </button>
+      </div>
+
+      {/* Right Box: Remaining Navbar width with status & actions */}
+      <div className="flex-1 h-full px-4 sm:px-6 flex items-center justify-between">
+        {/* Web: Gnani.ai Models in short */}
+        <div className="hidden md:flex items-center gap-2 text-xs">
+          <span className="font-bold text-slate-700">Clinical Console</span>
+          <span className="text-slate-300">•</span>
+          <span className="inline-flex items-center gap-1 rounded-md bg-teal-50 border border-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-800">
+            <Sparkles size={11} className="text-teal-600" /> Gnani.ai: Prisma • Evon • Timbre
+          </span>
+        </div>
+
+        {/* Right Actions: Status & Notifications */}
+        <div className="flex items-center gap-2.5 ml-auto">
+          <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-200 inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            OPD Active
+          </span>
+
+          <button
+            aria-label="Notifications"
+            className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <Bell className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </header>
   )

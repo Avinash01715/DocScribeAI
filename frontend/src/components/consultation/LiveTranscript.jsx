@@ -2,26 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowDown, Cpu, Radio } from 'lucide-react'
 
 /**
- * LiveTranscript.jsx - Real-Time Ambient Speech Viewport
- *
- * Implements specifications:
- * 1. Dual-Buffer Rendering:
- *    - Immutable confirmed sentences in high-contrast text (text-slate-100).
- *    - Active interim speech tokens with a subtle typewriter pulse and caret indicator.
- * 2. Auto-Scroll Locking:
- *    - Virtual sticky scroll that anchors to the bottom as dialogue streams in.
- *    - Automatically pauses if the clinician manually scrolls up to inspect previous lines.
- *    - Displays a "Resume auto-scroll" floating action pill when paused.
- * 3. Acoustic Performance Metric:
- *    - Includes an active latency chip (~140ms Latency) with live ping indicator in the header.
+ * LiveTranscript.jsx - Real-Time Ambient Speech Viewport (Light Clinical High-Contrast)
  */
 
 const STATUS_LABEL = {
-  idle: { text: 'Ready', color: 'bg-slate-500' },
-  connecting: { text: 'Connecting…', color: 'bg-amber-400' },
-  connected: { text: 'Prisma Live', color: 'bg-teal-400' },
-  closed: { text: 'Offline', color: 'bg-slate-600' },
-  error: { text: 'Stream Error', color: 'bg-rose-500' },
+  idle: { text: 'Ready', dot: 'bg-slate-400', badge: 'bg-slate-100 text-slate-800 border-slate-300' },
+  connecting: { text: 'Connecting…', dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-900 border-amber-300' },
+  connected: { text: 'Prisma Live', dot: 'bg-emerald-600', badge: 'bg-emerald-50 text-emerald-900 border-emerald-300' },
+  closed: { text: 'Offline', dot: 'bg-slate-400', badge: 'bg-slate-100 text-slate-800 border-slate-300' },
+  error: { text: 'Stream Error', dot: 'bg-rose-600', badge: 'bg-rose-50 text-rose-900 border-rose-300' },
 }
 
 export default function LiveTranscript({
@@ -35,22 +24,18 @@ export default function LiveTranscript({
   const containerRef = useRef(null)
   const bottomRef = useRef(null)
 
-  // Auto-scroll state: sticky by default, paused when clinician scrolls up
   const [autoScrollLocked, setAutoScrollLocked] = useState(true)
 
   const badge = STATUS_LABEL[status] || STATUS_LABEL.idle
 
-  // ---- 1. Auto-Scroll Locking & User Scroll Detection ----
   const handleScroll = () => {
     const el = containerRef.current
     if (!el) return
-    // If clinician scrolls up by more than 35px from bottom, pause sticky scroll
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     const isAtBottom = distanceFromBottom < 35
     setAutoScrollLocked(isAtBottom)
   }
 
-  // Virtual sticky scroll execution
   useEffect(() => {
     if (autoScrollLocked) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -62,91 +47,82 @@ export default function LiveTranscript({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }
 
-  // Separate confirmed lines and active interim tokens
   const confirmedLines = lines.filter((l) => l.is_final !== false)
   const interimLines = lines.filter((l) => l.is_final === false)
   const activeInterimText = interim || interimLines.map((l) => l.text).join(' ')
 
   return (
-    <section className="relative flex h-88 flex-col rounded-xl border border-slate-800 bg-panel p-5">
+    <section className="relative flex h-88 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       {/* Viewport Header */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+      <div className="mb-2.5 flex items-center justify-between border-b border-slate-100 pb-2.5">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold text-slate-100">Live Transcript</h2>
-          {/* Connection Status Badge */}
-          <span className="flex items-center gap-1.5 text-xs text-slate-300">
+          <h2 className="text-sm font-bold text-slate-900 tracking-tight">Live Transcript</h2>
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold ${badge.badge}`}>
             <span
-              className={`h-2.5 w-2.5 rounded-full ${badge.color} ${status === 'connected' ? 'animate-pulse' : ''}`}
+              className={`h-1.5 w-1.5 rounded-full ${badge.dot} ${status === 'connected' ? 'animate-pulse' : ''}`}
             />
             {badge.text}
           </span>
         </div>
 
-        {/* Acoustic Performance Metric Chip (~140ms Latency) */}
-        <div className="flex items-center gap-2">
-          <span
-            className="flex items-center gap-1.5 rounded-full border border-teal-500/30 bg-teal-500/10 px-2.5 py-1 text-xs font-mono font-medium text-teal-300"
-            title="Acoustic sub-200ms latency budget verified"
-          >
-            <span className="h-1.5 w-1.5 animate-ping rounded-full bg-teal-400" />
-            <Cpu size={12} className="text-teal-400" />
-            {latency} Latency
-          </span>
-        </div>
+        <span
+          className="flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-mono font-bold text-teal-800"
+          title="Gnani Prisma latency"
+        >
+          <Cpu size={11} className="text-teal-700" />
+          {latency}
+        </span>
       </div>
 
       {/* Stream Error Banner */}
       {error && (
         <div
           role="alert"
-          className="mb-3 flex gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200"
+          className="mb-2.5 flex gap-1.5 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs font-semibold text-rose-800"
         >
-          <AlertTriangle size={18} className="mt-0.5 shrink-0" /> {error}
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-rose-600" /> {error}
         </div>
       )}
 
-      {/* ---- 2. Dual-Buffer Dialogue Viewport ---- */}
+      {/* Dual-Buffer Dialogue Viewport */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 space-y-3 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700"
+        className="flex-1 space-y-2 overflow-y-auto pr-1 text-xs"
         aria-live="polite"
       >
         {confirmedLines.length === 0 && !activeInterimText ? (
-          <div className="flex h-full flex-col items-center justify-center text-center text-slate-500">
-            <Radio size={28} className="mb-2 text-slate-600" />
-            <p className="text-sm">
-              {isRecording
-                ? 'Bolna shuru karein, Gnani Prisma STT live transcribe karega…'
-                : 'Start Consultation dabane par ambient dialogue yahan stream hoga.'}
+          <div className="flex h-full flex-col items-center justify-center text-center text-slate-400">
+            <Radio size={20} className="mb-1.5 text-slate-300" />
+            <p className="text-xs font-medium">
+              {isRecording ? 'Listening… speak clearly.' : 'Click Start Recording to transcribe.'}
             </p>
           </div>
         ) : (
           <>
-            {/* Buffer 1: Immutable Confirmed Sentences */}
+            {/* Confirmed lines */}
             {confirmedLines.map((l) => (
-              <div key={l.id} className="space-y-0.5">
+              <div key={l.id} className="rounded-xl bg-slate-50 border border-slate-200/80 p-2.5 space-y-0.5">
                 {l.speaker && (
-                  <p className="text-xs font-medium text-teal-400">
+                  <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wider">
                     {l.speaker}
                   </p>
                 )}
-                <p className="text-sm leading-relaxed text-slate-100 font-normal">
+                <p className="leading-relaxed text-slate-900 font-semibold">
                   {l.text}
                 </p>
               </div>
             ))}
 
-            {/* Buffer 2: Active Interim Speech Tokens with Subtle Typewriter Pulse */}
+            {/* Interim tokens */}
             {activeInterimText && (
-              <div className="space-y-0.5">
-                <p className="text-xs font-medium text-teal-400/80">
-                  Speaking…
+              <div className="rounded-xl bg-teal-50 border border-teal-200 p-2.5 space-y-0.5">
+                <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wider">
+                  Listening…
                 </p>
-                <p className="inline-block text-sm leading-relaxed text-teal-300 animate-pulse font-mono">
+                <p className="inline-block leading-relaxed text-teal-950 font-mono font-bold">
                   {activeInterimText}
-                  {/* Blinking Typewriter Cursor */}
-                  <span className="ml-1 inline-block h-3.5 w-1 bg-teal-400 animate-bounce align-middle" />
+                  <span className="ml-1 inline-block h-3 w-1 bg-teal-600 animate-pulse align-middle" />
                 </p>
               </div>
             )}
@@ -155,13 +131,13 @@ export default function LiveTranscript({
         <div ref={bottomRef} />
       </div>
 
-      {/* Floating Sticky-Scroll Pause Resumption Pill */}
+      {/* Floating Scroll Resumption Pill */}
       {!autoScrollLocked && (
         <button
           onClick={resumeStickyScroll}
-          className="absolute bottom-4 right-6 flex items-center gap-1.5 rounded-full border border-teal-500/50 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-teal-300 shadow-xl backdrop-blur transition hover:bg-slate-800"
+          className="absolute bottom-3 right-5 flex items-center gap-1 rounded-full border border-teal-300 bg-white px-3 py-1 text-xs font-bold text-teal-800 shadow-md transition hover:bg-slate-50"
         >
-          <ArrowDown size={14} className="animate-bounce" /> Resume Live Scroll
+          <ArrowDown size={12} className="animate-bounce text-teal-600" /> Scroll to bottom
         </button>
       )}
     </section>
