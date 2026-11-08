@@ -1,11 +1,13 @@
 # backend/app/utils/pdf_generator.py
 import uuid
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 from fpdf import FPDF
 from app.utils.hinglish import devanagari_to_hinglish
 
+# Directory resolution anchored directly to backend/app/data/pdf_prescriptions
 BASE_DIR = Path(__file__).resolve().parent.parent
 PDF_OUTPUT_DIR = BASE_DIR / "data" / "pdf_prescriptions"
 PDF_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -68,7 +70,6 @@ def generate_prescription_pdf(
     Accepts either a unified `data` object or discrete kwargs.
     Returns only the generated filename (e.g. 'prescription_xyz.pdf').
     """
-    # Normalize input fields across call signatures
     p_info = patient_info if patient_info is not None else _get_val(data, "patient_info", {})
     c_findings = clinical_findings if clinical_findings is not None else _get_val(data, "clinical_findings", {})
     rx_items = prescription if prescription is not None else _get_val(data, "prescription", [])
@@ -80,7 +81,7 @@ def generate_prescription_pdf(
 
     pdf = ClinicalPrescriptionPDF(font_name="Helvetica")
 
-    # Windows font fallback for broader typography support
+    # Font fallback handling
     arial_path = Path("C:/Windows/Fonts/Arial.ttf")
     arial_bold = Path("C:/Windows/Fonts/arialbd.ttf")
     arial_italic = Path("C:/Windows/Fonts/ariali.ttf")
@@ -99,12 +100,13 @@ def generate_prescription_pdf(
     pdf.set_auto_page_break(auto=True, margin=20)
     fn = pdf.font_name
 
-    # Doctor and Date Details
+    # Doctor and Dynamic Date Details
     pdf.set_text_color(15, 23, 42)
     pdf.set_font(fn, "B", 11)
     pdf.cell(100, 6, safe_str(doctor_name), ln=False)
     pdf.set_font(fn, "", 10)
-    pdf.cell(0, 6, "Date: 07-Nov-2026", ln=True, align="R")
+    current_date_str = datetime.now().strftime("%d-%b-%Y")
+    pdf.cell(0, 6, f"Date: {current_date_str}", ln=True, align="R")
 
     # Patient Card Box
     pdf.set_fill_color(241, 245, 249)
@@ -174,15 +176,15 @@ def generate_prescription_pdf(
     pdf.set_font(fn, "I", 9)
     pdf.cell(0, 6, "Doctor's Signature", ln=True, align="R")
 
-    # Generate filename and write to disk
+    # Generate unique filename
     if filename_suffix:
         clean_suffix = re.sub(r"[^\w\-]", "_", filename_suffix)
         filename = f"prescription_{clean_suffix}.pdf"
     else:
         filename = f"prescription_{uuid.uuid4().hex[:8]}.pdf"
 
+    PDF_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     file_path = PDF_OUTPUT_DIR / filename
     pdf.output(str(file_path))
 
-    # Return only the filename so static URL formatting remains clean
     return filename

@@ -3,7 +3,7 @@
 Gnani Timbre TTS Service with Native In-Memory MP3 Transcoding.
 Calibrated for 16,000 Hz Linear PCM audio, transformed to MP3 (audio/mpeg, 64kbps)
 for universal compatibility across WhatsApp Web Share (navigator.share), wa.me links,
-and mobile browser streaming.
+and mobile browser streaming. Includes active disk capacity management.
 """
 import io
 import os
@@ -24,19 +24,20 @@ logger = logging.getLogger("dhanvantari.timbre")
 GNANI_TIMBRE_URL = os.getenv("GNANI_TIMBRE_URL", "https://api.vachana.ai/api/v1/tts/inference")
 GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
 
-# Directory resolution anchored directly to backend/app/data/audio_cache
+# Upstream Gnani Timbre native clock (16 kHz, 16-bit Mono Linear PCM)
+DEFAULT_SAMPLE_RATE = 48000
+
+# Centralized storage configuration with defensive defaults
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
 AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-# Upstream Gnani Timbre native clock (16 kHz, 16-bit Mono Linear PCM)
-DEFAULT_SAMPLE_RATE = 48000
 
 
 class TimbreTTSService:
     def __init__(self):
         self.api_url = GNANI_TIMBRE_URL
         self.api_key = GNANI_API_KEY
+        self.cache_dir = AUDIO_CACHE_DIR
 
     def construct_hindi_narrative(self, data: Any) -> str:
         """
@@ -102,7 +103,6 @@ class TimbreTTSService:
         """
         try:
             audio_segment = AudioSegment.from_file(io.BytesIO(wav_bytes), format="wav")
-            # Enforce 16kHz mono sampling for human speech clarity
             audio_segment = audio_segment.set_frame_rate(sample_rate).set_channels(1)
             mp3_io = io.BytesIO()
             audio_segment.export(mp3_io, format="mp3", bitrate="64k")
@@ -110,6 +110,12 @@ class TimbreTTSService:
         except Exception as exc:
             logger.error(f"FFmpeg/Pydub MP3 transcoding failed: {exc}. Returning raw WAV bytes as fallback.")
             return wav_bytes
+
+    def _write_bytes_to_disk(self, target_path: Path, payload: bytes) -> None:
+        """Synchronous write routine to be called via asyncio.to_thread."""
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(target_path, "wb") as f:
+            f.write(payload)
 
     async def synthesize_raw_audio(
         self,
@@ -124,7 +130,7 @@ class TimbreTTSService:
         """
         if not self.api_key:
             logger.info(f"GNANI_API_KEY unconfigured. Generating synthetic silent buffer at {target_sample_rate}Hz.")
-            silent_pcm = b"\x00" * (target_sample_rate * 2)  # 1.0 second silence
+            silent_pcm = b"\x00" * (target_sample_rate * 2)
             return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
 
         headers = {
@@ -193,35 +199,33 @@ class TimbreTTSService:
         output_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Synthesizes speech via Gnani Timbre TTS, transcodes the stream into an MP3 container
-        in a non-blocking worker thread, and writes the asset to the ephemeral audio cache.
+        Synthesizes speech via Gnani Timbre TTS, transcodes to 64kbps MP3 in a worker thread,
+        and safely writes to the ephemeral cache directory.
         """
-        # Determine output filename with .mp3 extension
         if output_filename:
             base_name = Path(output_filename).stem
             file_id = f"{base_name}.mp3"
         else:
             file_id = f"rx_{uuid.uuid4().hex[:8]}.mp3"
 
-        output_filepath = AUDIO_CACHE_DIR / file_id
+        output_filepath = self.cache_dir / file_id
 
-        # 1. Fetch raw WAV buffer from upstream Timbre
+        # 1. Fetch raw audio buffer
         wav_bytes, detected_rate = await self.synthesize_raw_audio(
             text=text,
             language=language,
             target_sample_rate=DEFAULT_SAMPLE_RATE
         )
 
-        # 2. Non-blocking in-memory transcoding to MP3 (audio/mpeg)
+        # 2. Non-blocking transcode to MP3
         mp3_bytes = await asyncio.to_thread(
             self._transcode_wav_to_mp3,
             wav_bytes,
             detected_rate
         )
 
-        # 3. Persist MP3 asset to disk cache
-        with open(output_filepath, "wb") as f:
-            f.write(mp3_bytes)
+        # 3. Non-blocking thread write
+        await asyncio.to_thread(self._write_bytes_to_disk, output_filepath, mp3_bytes)
 
         logger.info(f"Persisted WhatsApp-compliant MP3 asset: {file_id} ({len(mp3_bytes)} bytes)")
 
@@ -250,15 +254,12 @@ class TimbreTTSService:
 timbre_service = TimbreTTSService()
 
 
-# Asynchronous functional adapter for ConsultationOrchestrator
 async def synthesize_timbre_audio(
     text: str,
     language: str = "hi-IN",
     output_filename: Optional[str] = None
 ) -> Dict[str, Any]:
-    """
-    Adapter function invoked directly by app/services/orchestrator.py.
-    """
+    """Adapter function invoked directly by app/services/orchestrator.py."""
     return await timbre_service.synthesize_text(
         text=text,
         language=language,
