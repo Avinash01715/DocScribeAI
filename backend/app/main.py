@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 # Import REST and WebSocket routers
 from app.api.v1.endpoints.whatsapp import router as whatsapp_router
 from app.api.v1.endpoints.consultation import router as consultation_router
+from app.api.v1.endpoints.tts import router as tts_router
 from app.api.websockets.audio_stream import router as ws_router
 
 logging.basicConfig(
@@ -58,7 +59,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition"],
+    expose_headers=["Content-Disposition", "Content-Length", "x-audio-sample-rate"],
 )
 
 # Mount static asset endpoints
@@ -74,6 +75,7 @@ app.mount("/static/pdf", StaticFiles(directory=str(PDF_DIR)), name="static_pdf")
 # Mount Routers
 app.include_router(consultation_router, prefix="/api/v1", tags=["Consultation Orchestration"])
 app.include_router(whatsapp_router, prefix="/api/v1/whatsapp", tags=["WhatsApp"])
+app.include_router(tts_router, prefix="/api/v1", tags=["TTS Proxy"])
 app.include_router(ws_router, tags=["WebSocket Ingestion"])
 
 
