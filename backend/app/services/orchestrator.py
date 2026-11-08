@@ -1,17 +1,28 @@
 # backend/app/services/orchestrator.py
+"""
+Consultation Orchestrator Service.
+Coordinates concurrent PDF generation and vernacular MP3 voice note synthesis,
+assembles patient consultation artifacts, and constructs WhatsApp deep links.
+"""
+import os
 import asyncio
 import logging
 import re
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
-from app.schemas.consultation import ConsultationCompleteRequest, ConsultationCompleteResponse
+from app.schemas.consultation import (
+    ConsultationCompleteRequest,
+    ConsultationCompleteResponse,
+)
 from app.utils.pdf_generator import generate_prescription_pdf
-from app.services.gnani.timbre_service import synthesize_timbre_audio
+from app.services.gnani.timbre_service import synthesize_timbre_audio, timbre_service
 
 logger = logging.getLogger("dhanvantari.orchestrator")
+
+SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://127.0.0.1:8000")
 
 
 def normalize_indian_phone(phone: str) -> str:
@@ -25,7 +36,7 @@ def normalize_indian_phone(phone: str) -> str:
 
 
 def build_whatsapp_narrative(request: ConsultationCompleteRequest) -> str:
-    """Creates a structured text summary for WhatsApp transmission."""
+    """Creates a structured text summary optimized for WhatsApp rendering."""
     p_name = request.patient_info.name
     diag = request.clinical_findings.diagnosis
 
@@ -35,7 +46,7 @@ def build_whatsapp_narrative(request: ConsultationCompleteRequest) -> str:
         f"",
         f"*Diagnosis:* {diag}",
         f"",
-        f"*Dawaiyan (Medicines):*"
+        f"*Dawaiyan (Medicines):*",
     ]
 
     for idx, med in enumerate(request.prescription, 1):
@@ -50,8 +61,8 @@ def build_whatsapp_narrative(request: ConsultationCompleteRequest) -> str:
 
 
 class ConsultationOrchestrator:
-    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url: Optional[str] = None):
+        self.base_url = (base_url or SERVER_BASE_URL).rstrip("/")
 
     async def complete_consultation(
         self, request: ConsultationCompleteRequest
@@ -64,31 +75,35 @@ class ConsultationOrchestrator:
         sanitized_name = re.sub(r"[^\w]", "_", request.patient_info.name)
 
         # 1. Prepare parallel coroutines
-        # FPDF2 file writing is synchronous/CPU bound; execute in worker thread
+        # FPDF2 execution is CPU-bound file I/O; delegate to worker thread
         pdf_task = asyncio.to_thread(
             generate_prescription_pdf,
             patient_info=request.patient_info.model_dump(),
             clinical_findings=request.clinical_findings.model_dump(),
             prescription=[m.model_dump() for m in request.prescription],
             advice=request.advice,
-            filename_suffix=f"{sanitized_name}_{timestamp}"
+            filename_suffix=f"{sanitized_name}_{timestamp}",
         )
 
-        # Timbre TTS is an I/O network call
+        # Non-blocking async Timbre TTS & in-memory MP3 transcoding task
         tts_task = self._safe_synthesize_audio(request, sanitized_name, timestamp)
 
-        # 2. Execute concurrently to minimize tail dispatch latency
+        # 2. Execute concurrently to minimize round-trip tail latency
         pdf_filename, audio_filename = await asyncio.gather(pdf_task, tts_task)
 
         # 3. Construct public URLs for static assets
         pdf_url = f"{self.base_url}/static/prescriptions/{pdf_filename}"
-        audio_url = f"{self.base_url}/static/audio/{audio_filename}" if audio_filename else None
+        audio_url = (
+            f"{self.base_url}/static/audio/{audio_filename}"
+            if audio_filename
+            else None
+        )
 
         # 4. Construct WhatsApp Message & Deep Link
         message_body = build_whatsapp_narrative(request)
         message_body += f"\n\n*Digital Prescription PDF:*\n{pdf_url}"
         if audio_url:
-            message_body += f"\n\n*Awaaz Mein Suniye (Audio Note):*\n{audio_url}"
+            message_body += f"\n\n*Awaaz Mein Suniye (Audio Note - MP3):*\n{audio_url}"
 
         encoded_text = urllib.parse.quote(message_body)
         phone_normalized = normalize_indian_phone(request.phone_number)
@@ -100,32 +115,28 @@ class ConsultationOrchestrator:
             pdf_url=pdf_url,
             audio_url=audio_url,
             whatsapp_deep_link=wa_deep_link,
-            narrative_text=message_body
+            narrative_text=message_body,
         )
 
     async def _safe_synthesize_audio(
         self, request: ConsultationCompleteRequest, sanitized_name: str, timestamp: str
     ) -> Optional[str]:
-        """Synthesizes vernacular voice notes defensively without breaking the pipeline."""
+        """Synthesizes vernacular voice notes defensively as MP3 without breaking the pipeline."""
         try:
-            filename = f"rx_audio_{sanitized_name}_{timestamp}.wav"
-            # Format conversational Hindi text for Timbre
-            med_lines = []
-            for m in request.prescription:
-                med_lines.append(f"{m.drug_name} {m.dosage}, {m.frequency}, {m.timing}, {m.duration} tak")
-            
-            spoken_script = (
-                f"{request.patient_info.name} ji, aapki dawaiyan iss prakaar hain: "
-                + ". ".join(med_lines)
-                + f". Salah: {request.advice if request.advice else 'Dhyan rakhein'}"
-            )
+            target_filename = f"rx_audio_{sanitized_name}_{timestamp}.mp3"
 
-            await synthesize_timbre_audio(
+            # Leverage the verified vernacular Hindi script generator with matrix-to-speech mapping
+            spoken_script = timbre_service.construct_hindi_narrative(request)
+
+            result = await synthesize_timbre_audio(
                 text=spoken_script,
                 language=request.language,
-                output_filename=filename
+                output_filename=target_filename,
             )
-            return filename
+
+            # Return the exact MP3 filename confirmed by the synthesis worker
+            return result.get("file_name", target_filename)
+
         except Exception as exc:
             logger.error(f"Timbre TTS synthesis fallback engaged due to error: {exc}")
             return None

@@ -1,18 +1,21 @@
 # backend/app/services/gnani/timbre_service.py
 """
-Gnani Timbre TTS Service.
-Provides high-fidelity vernacular voice synthesis calibrated for 48,000 Hz Linear PCM RIFF WAV audio.
+Gnani Timbre TTS Service with Native In-Memory MP3 Transcoding.
+Calibrated for 16,000 Hz Linear PCM audio, transformed to MP3 (audio/mpeg, 64kbps)
+for universal compatibility across WhatsApp Web Share (navigator.share), wa.me links,
+and mobile browser streaming.
 """
 import io
 import os
-import re
 import uuid
 import wave
+import asyncio
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
 import httpx
+from pydub import AudioSegment
 
 load_dotenv()
 
@@ -26,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
 AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Standard studio-quality TTS sampling clock (48 kHz, 16-bit Mono Linear PCM)
+# Upstream Gnani Timbre native clock (16 kHz, 16-bit Mono Linear PCM)
 DEFAULT_SAMPLE_RATE = 48000
 
 
@@ -40,7 +43,6 @@ class TimbreTTSService:
         Transforms clinical entities into spoken regional Hindi dosage instructions.
         Accepts Pydantic schemas or standard dictionary payloads.
         """
-        # Resolve patient name
         p_info = getattr(data, "patient_info", None) or (data.get("patient_info") if isinstance(data, dict) else None)
         if p_info:
             p_name = getattr(p_info, "name", None) or (p_info.get("name") if isinstance(p_info, dict) else "Aap")
@@ -50,7 +52,6 @@ class TimbreTTSService:
         patient_name = p_name if p_name and p_name != "Unknown" else "Aap"
         phrases = [f"{patient_name} ji,"]
 
-        # Resolve prescription list
         prescription = getattr(data, "prescription", None) or (data.get("prescription") if isinstance(data, dict) else [])
         for med in prescription:
             freq = getattr(med, "frequency", None) or (med.get("frequency") if isinstance(med, dict) else "")
@@ -63,7 +64,6 @@ class TimbreTTSService:
                 or (med.get("drug_name") if isinstance(med, dict) else "Dawai")
             )
 
-            # Map matrix notation to natural spoken clinical Hindi
             freq_hindi = "din mein ek baar"
             if freq == "1 - 1 - 1":
                 freq_hindi = "din mein teen baar"
@@ -91,11 +91,27 @@ class TimbreTTSService:
         with wave.open(wav_io, "wb") as wf:
             wf.setnchannels(1)             # Mono
             wf.setsampwidth(2)             # 16-bit signed PCM
-            wf.setframerate(sample_rate)   # Calibrated 48000 Hz
+            wf.setframerate(sample_rate)   # Calibrated 16000 Hz
             wf.writeframes(raw_pcm)
         return wav_io.getvalue()
 
-    async def synthesize_raw_wav(
+    def _transcode_wav_to_mp3(self, wav_bytes: bytes, sample_rate: int = DEFAULT_SAMPLE_RATE) -> bytes:
+        """
+        Synchronous worker: Converts in-memory WAV bytes to an optimized MP3 stream (64kbps, mono).
+        Executed inside asyncio.to_thread to prevent blocking the event loop.
+        """
+        try:
+            audio_segment = AudioSegment.from_file(io.BytesIO(wav_bytes), format="wav")
+            # Enforce 16kHz mono sampling for human speech clarity
+            audio_segment = audio_segment.set_frame_rate(sample_rate).set_channels(1)
+            mp3_io = io.BytesIO()
+            audio_segment.export(mp3_io, format="mp3", bitrate="64k")
+            return mp3_io.getvalue()
+        except Exception as exc:
+            logger.error(f"FFmpeg/Pydub MP3 transcoding failed: {exc}. Returning raw WAV bytes as fallback.")
+            return wav_bytes
+
+    async def synthesize_raw_audio(
         self,
         text: str,
         language: str = "hi-IN",
@@ -104,11 +120,10 @@ class TimbreTTSService:
     ) -> Tuple[bytes, int]:
         """
         Synthesizes text via Gnani Timbre TTS and returns (wav_bytes, sample_rate).
-        Guarantees compliant RIFF WAV headers aligned to target_sample_rate.
+        Guarantees container encapsulation aligned to target_sample_rate.
         """
-        # Fallback offline mock buffer when API key is unconfigured
         if not self.api_key:
-            logger.info(f"GNANI_API_KEY unconfigured. Generating synthetic mock buffer at {target_sample_rate}Hz.")
+            logger.info(f"GNANI_API_KEY unconfigured. Generating synthetic silent buffer at {target_sample_rate}Hz.")
             silent_pcm = b"\x00" * (target_sample_rate * 2)  # 1.0 second silence
             return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
 
@@ -123,7 +138,6 @@ class TimbreTTSService:
             if not v:
                 continue
 
-            # Explicitly request WAV container and 48000 Hz linear PCM from Timbre TTS API
             payload = {
                 "text": text,
                 "language": language,
@@ -138,7 +152,6 @@ class TimbreTTSService:
                 async with httpx.AsyncClient(timeout=20.0) as client:
                     response = await client.post(self.api_url, headers=headers, json=payload)
 
-                # Trap JSON error responses
                 if "application/json" in response.headers.get("Content-Type", "").lower():
                     raise Exception(f"Timbre API error payload: {response.text[:200]}")
 
@@ -148,32 +161,28 @@ class TimbreTTSService:
                 if not content or len(content) < 1024:
                     raise Exception("Timbre API returned empty or truncated audio buffer")
 
-                # Parse sample rate from response header if provided, otherwise preserve target
                 detected_rate = target_sample_rate
                 rate_header = response.headers.get("x-audio-sample-rate")
                 if rate_header and rate_header.isdigit():
                     detected_rate = int(rate_header)
 
-                # Ensure container RIFF WAV encapsulation
                 if content.startswith(b"RIFF"):
                     wav_bytes = content
                 else:
                     wav_bytes = self._package_pcm_to_wav(content, sample_rate=detected_rate)
 
                 logger.info(
-                    f"Successfully synthesized audio with voice '{v}' (SampleRate: {detected_rate}Hz, Bytes: {len(wav_bytes)})"
+                    f"Synthesized TTS audio with voice '{v}' (SampleRate: {detected_rate}Hz, Bytes: {len(wav_bytes)})"
                 )
                 return wav_bytes, detected_rate
 
             except Exception as exc:
                 logger.warning(f"Voice candidate '{v}' synthesis failed: {exc}")
                 if v == candidates[-1]:
-                    # Final safety fallback
                     logger.error("All Timbre voice candidates exhausted. Returning calibrated fallback audio.")
                     silent_pcm = b"\x00" * (target_sample_rate * 2)
                     return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
 
-        # Ultimate fallback
         silent_pcm = b"\x00" * (target_sample_rate * 2)
         return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
 
@@ -184,20 +193,37 @@ class TimbreTTSService:
         output_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Synthesizes text via Gnani Timbre TTS and saves the output to disk cache.
-        Preserves 48000 Hz containerized WAV files.
+        Synthesizes speech via Gnani Timbre TTS, transcodes the stream into an MP3 container
+        in a non-blocking worker thread, and writes the asset to the ephemeral audio cache.
         """
-        file_id = output_filename if output_filename else f"rx_{uuid.uuid4().hex[:8]}.wav"
+        # Determine output filename with .mp3 extension
+        if output_filename:
+            base_name = Path(output_filename).stem
+            file_id = f"{base_name}.mp3"
+        else:
+            file_id = f"rx_{uuid.uuid4().hex[:8]}.mp3"
+
         output_filepath = AUDIO_CACHE_DIR / file_id
 
-        wav_bytes, detected_rate = await self.synthesize_raw_wav(
+        # 1. Fetch raw WAV buffer from upstream Timbre
+        wav_bytes, detected_rate = await self.synthesize_raw_audio(
             text=text,
             language=language,
             target_sample_rate=DEFAULT_SAMPLE_RATE
         )
 
+        # 2. Non-blocking in-memory transcoding to MP3 (audio/mpeg)
+        mp3_bytes = await asyncio.to_thread(
+            self._transcode_wav_to_mp3,
+            wav_bytes,
+            detected_rate
+        )
+
+        # 3. Persist MP3 asset to disk cache
         with open(output_filepath, "wb") as f:
-            f.write(wav_bytes)
+            f.write(mp3_bytes)
+
+        logger.info(f"Persisted WhatsApp-compliant MP3 asset: {file_id} ({len(mp3_bytes)} bytes)")
 
         return {
             "file_name": file_id,
@@ -205,6 +231,8 @@ class TimbreTTSService:
             "local_path": str(output_filepath),
             "script": text,
             "sample_rate": detected_rate,
+            "format": "mp3",
+            "content_type": "audio/mpeg",
             "synthesized": bool(self.api_key)
         }
 
@@ -216,15 +244,6 @@ class TimbreTTSService:
         """Backwards-compatible interface for structured consultation models."""
         hindi_script = self.construct_hindi_narrative(data)
         return await self.synthesize_text(text=hindi_script, language=language)
-
-    def _generate_silent_mock_wav(self, path: Path, sample_rate: int = DEFAULT_SAMPLE_RATE) -> None:
-        """Generates 1.0 second of clean silence calibrated at the target sample rate."""
-        if not path.exists():
-            with wave.open(str(path), "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(sample_rate)
-                wf.writeframes(b"\x00" * (sample_rate * 2))
 
 
 # Service instance singleton

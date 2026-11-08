@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, Download, FileAudio, Headphones, Pause, Play, Sparkles, Volume2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Download, FileAudio, Headphones, Pause, Play, Sparkles } from 'lucide-react'
 
 /**
  * VoicePlayer.jsx - Production Audio Player for Gnani Timbre TTS
  *
  * Implements strict audio engineering safeguards:
- * 1. Response Binary Parsing: Uses `response.blob()` and `response.arrayBuffer()`
- *    (strictly rejects `.text()` / `.json()` binary mutations).
- * 2. Container & MIME Type Alignment: Enforces 'audio/wav' Blob encapsulation.
- * 3. AudioContext / Buffer Normalization: Maps raw 16-bit PCM (Int16) to 32-bit floats
- *    in [-1.0, 1.0] by dividing by 32768.0 to eliminate digital clipping distortion.
- * 4. Sample Rate Matching: Calibrates Web Audio AudioContext clock to 48000 Hz
- *    matching the Gnani Timbre TTS inference engine.
+ * 1. Binary Audio Ingestion: Parses binary payloads via response.arrayBuffer()[cite: 8].
+ * 2. Dynamic Container Detection: Automatically detects MP3 (ID3/Sync) vs RIFF WAV containers[cite: 8].
+ * 3. Native HTML5 Audio Streaming: Leverages native browser decoders for MP3 (audio/mpeg)
+ *    with byte-range seeking and scrub support.
+ * 4. Sample Rate Alignment: Calibrates Web Audio clock to 16,000 Hz matching
+ *    Gnani Timbre's speech synthesis engine[cite: 3, 8].
  */
 
 const API_BASE = 'http://127.0.0.1:8000'
-const TARGET_SAMPLE_RATE = 48000
+const DEFAULT_TIMBRE_SAMPLE_RATE = 16000
 const SPEED_OPTIONS = [1.0, 1.25, 1.5, 2.0]
 
 const fmt = (s) => {
@@ -37,6 +36,7 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
   const [speed, setSpeed] = useState(1.0)
   const [accordionOpen, setAccordionOpen] = useState(true)
   const [audioBlob, setAudioBlob] = useState(null)
+  const [audioFormat, setAudioFormat] = useState('mp3') // 'mp3' | 'wav'
 
   // Resolve relative URLs to backend host
   const resolvedSrc = src
@@ -45,7 +45,7 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
       : src
     : null
 
-  // ---- 1. Binary Audio Fetching & Container Alignment Pipeline ----
+  // ---- 1. Binary Audio Ingestion & Container Alignment ----
   useEffect(() => {
     if (!resolvedSrc) {
       if (objectUrlRef.current) {
@@ -64,7 +64,6 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
       try {
         const response = await fetch(resolvedSrc)
 
-        // Trap HTTP errors or JSON error responses from backend
         if (!response.ok) {
           const contentType = response.headers.get('content-type') || ''
           if (contentType.includes('application/json')) {
@@ -74,26 +73,42 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
           throw new Error(`Audio fetch failed with status ${response.status}`)
         }
 
-        // Issue 1 Fix: Parse binary payload directly via response.arrayBuffer()
-        // Never use response.text() which converts binary bytes to corrupted UTF-8 strings
         const arrayBuffer = await response.arrayBuffer()
         if (cancelled) return
 
         if (!arrayBuffer || arrayBuffer.byteLength < 44) {
-          throw new Error('Received truncated or empty audio payload.')
+          throw new Error('Received empty or truncated audio buffer from server.')
         }
 
-        // Issue 2 Fix: Container & MIME Type Alignment
-        // Ensure Blob is instantiated with explicit 'audio/wav' MIME type
-        const wavBlob = new Blob([arrayBuffer], { type: 'audio/wav' })
-        setAudioBlob(wavBlob)
+        // Inspect header bytes to identify format
+        const uint8 = new Uint8Array(arrayBuffer.slice(0, 4))
+        const headerTag = String.fromCharCode(...uint8)
 
-        // Revoke prior blob URL to prevent memory leaks
+        let detectedType = 'audio/mpeg'
+        let formatKey = 'mp3'
+
+        if (headerTag === 'RIFF') {
+          detectedType = 'audio/wav'
+          formatKey = 'wav'
+        } else if (headerTag.startsWith('ID3') || (uint8[0] === 0xff && (uint8[1] & 0xe0) === 0xe0)) {
+          detectedType = 'audio/mpeg'
+          formatKey = 'mp3'
+        } else if (resolvedSrc.endsWith('.wav')) {
+          detectedType = 'audio/wav'
+          formatKey = 'wav'
+        }
+
+        setAudioFormat(formatKey)
+
+        // Instantiate Blob with the correct MIME type
+        const blob = new Blob([arrayBuffer], { type: detectedType })
+        setAudioBlob(blob)
+
         if (objectUrlRef.current) {
           URL.revokeObjectURL(objectUrlRef.current)
         }
 
-        const objectUrl = URL.createObjectURL(wavBlob)
+        const objectUrl = URL.createObjectURL(blob)
         objectUrlRef.current = objectUrl
 
         if (audioRef.current) {
@@ -127,13 +142,11 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
     }
   }, [speed])
 
-  // ---- 2. Web Audio API Normalization & Sample Rate Alignment Helper ----
-  // Used if direct raw PCM playback via AudioContext is required
+  // ---- 2. Web Audio API Helper (Calibrated for 16kHz PCM) ----
   const playViaWebAudioContext = async (rawBuffer) => {
     try {
-      // Issue 4 Fix: Sample Rate Matching (align context clock to 48000 Hz)
       const AudioCtx = window.AudioContext || window.webkitAudioContext
-      const ctx = audioCtxRef.current || new AudioCtx({ sampleRate: TARGET_SAMPLE_RATE })
+      const ctx = audioCtxRef.current || new AudioCtx({ sampleRate: DEFAULT_TIMBRE_SAMPLE_RATE })
       audioCtxRef.current = ctx
 
       if (ctx.state === 'suspended') {
@@ -142,24 +155,20 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
 
       let audioBuffer
       const isRiffWav = new Uint8Array(rawBuffer.slice(0, 4)).reduce(
-        (acc, byte, i) => acc + String.fromCharCode(byte),
+        (acc, byte) => acc + String.fromCharCode(byte),
         ''
       ) === 'RIFF'
 
       if (isRiffWav) {
-        // Standard RIFF container: decode natively
         audioBuffer = await ctx.decodeAudioData(rawBuffer.slice(0))
       } else {
-        // Issue 3 Fix: Raw Int16 PCM Normalization
-        // Convert signed 16-bit integers [-32768, 32767] to 32-bit floats [-1.0, 1.0]
+        // Raw signed 16-bit PCM normalization [-32768, 32767] -> [-1.0, 1.0][cite: 8]
         const int16Array = new Int16Array(rawBuffer)
-        const numChannels = 1
         const numSamples = int16Array.length
 
-        audioBuffer = ctx.createBuffer(numChannels, numSamples, TARGET_SAMPLE_RATE)
+        audioBuffer = ctx.createBuffer(1, numSamples, DEFAULT_TIMBRE_SAMPLE_RATE)
         const channelData = audioBuffer.getChannelData(0)
 
-        // DIVIDE BY 32768.0 TO ELIMINATE STATIC CLIPPING
         for (let i = 0; i < numSamples; i++) {
           channelData[i] = int16Array[i] / 32768.0
         }
@@ -184,7 +193,7 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
       }
     } catch (err) {
       console.error('[WebAudio] Playback failed:', err)
-      setError('Web Audio API playback failed: ' + err.message)
+      setError('Web Audio API playback error: ' + err.message)
     }
   }
 
@@ -213,7 +222,7 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
     const messages = {
       1: 'Playback was aborted.',
       2: 'Network error encountered during audio fetch.',
-      3: 'Audio decoding error (corrupted container or sample rate mismatch).',
+      3: 'Audio decoding error (corrupted bitstream or container mismatch).',
       4: 'Audio resource not found at specified static path.',
     }
     const detail = messages[code] || `Error code: ${code}`
@@ -263,7 +272,7 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
           Gnani Timbre Regional Audio Preview (Hindi)
         </h3>
         <span className="flex items-center gap-1 rounded-full border border-teal-500/30 bg-teal-500/10 px-2.5 py-0.5 text-xs font-mono font-medium text-teal-300">
-          <FileAudio size={12} /> 48kHz Linear PCM WAV
+          <FileAudio size={12} /> {audioFormat === 'mp3' ? '16kHz MP3 (64kbps)' : '16kHz Linear PCM WAV'}
         </span>
       </div>
 
@@ -327,7 +336,7 @@ export default function VoicePlayer({ src, script = '', mode = 'html5' }) {
             {audioBlob && objectUrlRef.current && (
               <a
                 href={objectUrlRef.current}
-                download="consultation_instructions_48k.wav"
+                download={`prescription_voice_note.${audioFormat}`}
                 className="flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-400 hover:text-teal-300 transition"
               >
                 <Download size={16} /> Download

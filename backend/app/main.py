@@ -1,4 +1,10 @@
 # backend/app/main.py
+"""
+DhanvantariVoice API Gateway.
+Coordinates ambient WebSocket PCM ingestion, clinical LLM parsing,
+FPDF2 prescription generation, and high-performance MP3 voice note streaming.
+"""
+import mimetypes
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,6 +28,12 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("dhanvantari.main")
+
+# Explicitly register standard MIME types to guarantee browser and mobile streaming
+mimetypes.init()
+mimetypes.add_type("audio/mpeg", ".mp3")
+mimetypes.add_type("audio/wav", ".wav")
+mimetypes.add_type("application/pdf", ".pdf")
 
 # Directory setup for media and document assets
 BASE_DIR = Path(__file__).resolve().parent
@@ -51,7 +63,7 @@ app = FastAPI(
 
 # -------------------------------------------------------------------------
 # CORS Configuration for cross-origin audio streaming & PDF fetching.
-# allow_credentials=False avoids browser 304/CORS fetch errors with allow_origins=["*"].
+# Exposes range and length headers required by mobile audio players.
 # -------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -59,11 +71,18 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition", "Content-Length", "x-audio-sample-rate"],
+    expose_headers=[
+        "Content-Disposition",
+        "Content-Length",
+        "Content-Range",
+        "Accept-Ranges",
+        "Content-Type",
+        "x-audio-sample-rate"
+    ],
 )
 
 # Mount static asset endpoints
-# /static/audio serves generated Timbre TTS .wav files
+# /static/audio serves generated Timbre TTS MP3/WAV files with HTTP byte-range support
 app.mount("/static/audio", StaticFiles(directory=str(AUDIO_CACHE_DIR)), name="static_audio")
 
 # /static/prescriptions serves compiled FPDF2 prescriptions for the orchestrator
@@ -72,7 +91,7 @@ app.mount("/static/prescriptions", StaticFiles(directory=str(PDF_DIR)), name="st
 # Legacy/secondary alias for PDF downloads
 app.mount("/static/pdf", StaticFiles(directory=str(PDF_DIR)), name="static_pdf")
 
-# Mount Routers
+# Mount REST & Streaming Routers
 app.include_router(consultation_router, prefix="/api/v1", tags=["Consultation Orchestration"])
 app.include_router(whatsapp_router, prefix="/api/v1/whatsapp", tags=["WhatsApp"])
 app.include_router(tts_router, prefix="/api/v1", tags=["TTS Proxy"])
