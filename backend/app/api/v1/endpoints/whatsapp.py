@@ -1,8 +1,9 @@
 # backend/app/api/v1/endpoints/whatsapp.py
+import os
 from pathlib import Path
 import urllib.parse
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from app.schemas.prescription import PrescriptionExtractionResponse
@@ -26,20 +27,42 @@ class WhatsAppSendRequest(BaseModel):
     prescription_data: PrescriptionExtractionResponse
 
 
+def get_server_base_url(request: Request) -> str:
+    """Resolve public base URL of the backend service."""
+    env_base = os.getenv("SERVER_BASE_URL", "").strip().rstrip("/")
+    if env_base:
+        return env_base
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.base_url.netloc
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    return f"{proto}://{host}"
+
+
 # Endpoint to generate vernacular voice note, compile PDF, and construct WhatsApp wa.me link
 @router.post("/dispatch", summary="Dispatch prescription text, PDF, and vernacular audio to WhatsApp")
-async def dispatch_prescription(payload: WhatsAppSendRequest):
+async def dispatch_prescription(payload: WhatsAppSendRequest, request: Request):
     """
     1. Synthesizes vernacular dosage instructions via Gnani Timbre TTS (MP3).
     2. Compiles standardized PDF prescription via FPDF2.
     3. Persists consultation to SQLite history repository for fast recent lookup.
-    4. Builds WhatsApp text summary and universal wa.me deep-link URL.
+    4. Builds WhatsApp text summary and universal wa.me deep-link URL with direct audio & PDF links.
     """
     # 1. Synthesize regional audio note in Hindi
     voice_note_result = await timbre_service.generate_voice_note(payload.prescription_data)
 
     # 2. Compile standardized clinical PDF prescription document
     pdf_filename = generate_prescription_pdf(payload.prescription_data)
+    clean_pdf_name = Path(pdf_filename).name
+
+    # Determine public server base URL and full download links
+    base_url = get_server_base_url(request)
+    pdf_static_url = f"/static/prescriptions/{clean_pdf_name}"
+    full_pdf_url = f"{base_url}{pdf_static_url}"
+
+    audio_static_url = voice_note_result.get("audio_url") or ""
+    if audio_static_url and not audio_static_url.startswith("http"):
+        full_audio_url = f"{base_url}{audio_static_url}"
+    else:
+        full_audio_url = audio_static_url
 
     # 3. Construct formatted clinical message body for WhatsApp
     p_info = payload.prescription_data.patient_info
@@ -74,7 +97,16 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
 
     # Append vernacular voice note transcription
     script = voice_note_result.get("script", "")
-    text_lines.append(f"\n🔊 *Awaaz mein nirdesh (Hindi):*\n_{script}_")
+    if script:
+        text_lines.append(f"\n🔊 *Awaaz mein nirdesh (Hindi):*\n_{script}_")
+
+    # Embed direct clickable links for Audio & PDF into WhatsApp message body
+    if full_audio_url:
+        text_lines.append(f"\n🎧 *Audio Voice Note (Sunein):*\n{full_audio_url}")
+
+    if full_pdf_url:
+        text_lines.append(f"\n📄 *Prescription PDF (Download):*\n{full_pdf_url}")
+
     text_lines.append("\n✅ *Dawai samay par lein. Shubhkaamnayein!*")
 
     full_text_message = "\n".join(text_lines)
@@ -84,9 +116,6 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
     encoded_text = urllib.parse.quote(full_text_message)
     wa_deep_link = f"https://wa.me/{clean_phone}?text={encoded_text}"
 
-    clean_pdf_name = Path(pdf_filename).name
-    pdf_static_url = f"/static/prescriptions/{clean_pdf_name}"
-
     # 5. Persist Consultation Record in SQLite (Append-Only History)
     try:
         await history_repo.save_record({
@@ -94,8 +123,8 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
             "phone_number": clean_phone,
             "diagnosis": diagnosis,
             "medications_count": len(meds),
-            "audio_url": voice_note_result.get("audio_url"),
-            "pdf_url": pdf_static_url,
+            "audio_url": full_audio_url,
+            "pdf_url": full_pdf_url,
             "full_payload_json": payload.prescription_data.model_dump()
         })
     except Exception as exc:
@@ -107,14 +136,14 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
         "recipient": clean_phone,
         "whatsapp_deep_link": wa_deep_link,
         "voice_note": {
-            "audio_url": voice_note_result.get("audio_url"),
+            "audio_url": full_audio_url,
             "script": voice_note_result.get("script"),
             "synthesized": voice_note_result.get("synthesized", False),
             "format": voice_note_result.get("format", "mp3")
         },
         "pdf_receipt": {
             "file_name": clean_pdf_name,
-            "url": pdf_static_url,
+            "url": full_pdf_url,
             "status": "generated"
         }
     }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Eye, EyeOff, Loader2, Sparkles, X } from 'lucide-react'
+import { CheckCircle2, Download, Eye, EyeOff, Loader2, Sparkles, X } from 'lucide-react'
 import VoicePlayer from './VoicePlayer'
 
 /**
@@ -37,7 +37,6 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
-  const [audioFile, setAudioFile] = useState(null)
   const [showPdfEmbed, setShowPdfEmbed] = useState(false)
 
   // Derived links and text from backend dispatch result
@@ -45,52 +44,14 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
   const pdfUrl = result?.pdf_receipt?.url || result?.pdf_url || null
   const deepLink = result?.whatsapp_deep_link || null
   const scriptText = result?.voice_note?.script || result?.narrative_text || ''
-  const [pdfFile, setPdfFile] = useState(null)
 
   // Reset modal state and notify parent on close
   const handleClose = () => {
     setError('')
     setResult(null)
     setShowPdfEmbed(false)
-    setAudioFile(null)
     onClose()
   }
-
-  // Pre-fetch synthesized audio as File blob for Web Share API support
-  useEffect(() => {
-    if (!audioUrl) return
-    let cancelled = false
-    fetch(audioUrl)
-      .then((r) => { if (!r.ok) throw new Error('Audio fetch failed.'); return r.blob() })
-      .then((blob) => {
-        if (cancelled) return
-        const cleanBlob = blob.type === 'audio/mpeg' ? blob : new Blob([blob], { type: 'audio/mpeg' })
-        setAudioFile(new File([cleanBlob], 'prescription_voice_note.mp3', { type: 'audio/mpeg' }))
-      })
-      .catch((err) => console.warn('Audio prep failed:', err))
-    return () => {
-      cancelled = true
-      setAudioFile(null)
-    }
-  }, [audioUrl])
-
-  // Pre-fetch generated prescription PDF as File blob for Web Share API support
-  useEffect(() => {
-    if (!pdfUrl) return
-    let cancelled = false
-    fetch(pdfUrl)
-      .then((r) => { if (!r.ok) throw new Error('PDF fetch failed.'); return r.blob() })
-      .then((blob) => {
-        if (cancelled) return
-        const cleanBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' })
-        setPdfFile(new File([cleanBlob], 'prescription.pdf', { type: 'application/pdf' }))
-      })
-      .catch((err) => console.warn('PDF prep failed:', err))
-    return () => {
-      cancelled = true
-      setPdfFile(null)
-    }
-  }, [pdfUrl])
 
   // Listen for Escape keyboard shortcut to close modal
   useEffect(() => {
@@ -104,10 +65,6 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
   if (!open) return null
 
   const normalized = normalizeIndianPhone(phone)
-  const canShareFile =
-    !!audioFile &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [audioFile] })
 
   // Trigger backend generation of PDF, vernacular TTS voice note, and WhatsApp link
   const handleDispatch = async () => {
@@ -122,45 +79,26 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
     }
   }
 
-  // Share generated audio note and PDF via Web Share API or open via WhatsApp wa.me link
-  const shareVoiceAndPdf = async () => {
+  // Share generated audio note and PDF via WhatsApp wa.me link
+  const shareVoiceAndPdf = () => {
     setError('')
 
-    const canSharePdfFile =
-      !!pdfFile &&
-      typeof navigator.canShare === 'function' &&
-      navigator.canShare({ files: [pdfFile] })
-
-    // Try sharing files directly using browser native Web Share API
-    if (canShareFile || canSharePdfFile) {
-      const filesToShare = [
-        ...(canShareFile ? [audioFile] : []),
-        ...(canSharePdfFile ? [pdfFile] : []),
-      ]
-      try {
-        await navigator.share({
-          files: filesToShare,
-          title: 'Prescription',
-          text: scriptText || 'Namaste, aapki prescription taiyyar hai.',
-        })
-        return
-      } catch (e) {
-        if (e.name === 'AbortError') return
-        // Fall back to opening WhatsApp deep link
-      }
-    }
-
-    // Fallback: open WhatsApp universal wa.me deep link in browser
-    if (audioUrl && deepLink) {
+    // Open WhatsApp deep link (contains clinical summary + direct audio voice link + direct PDF download link)
+    if (deepLink) {
       window.open(deepLink, '_blank', 'noopener,noreferrer')
+      return
     }
 
-    // Open second WhatsApp tab for direct PDF link if applicable
-    if (pdfUrl && normalized) {
-      const msg = encodeURIComponent(
-        `📋 *Prescription PDF*\n${pdfUrl}`
-      )
+    // Fallback if deepLink is not directly available
+    if (normalized) {
+      const parts = ['🩺 *DHANVANTARI CLINIC PRESCRIPTION*']
+      if (scriptText) parts.push(`\n🔊 *Audio Script:*\n${scriptText}`)
+      if (audioUrl) parts.push(`\n🎧 *Audio Voice Note (Sunein):*\n${audioUrl}`)
+      if (pdfUrl) parts.push(`\n📄 *Prescription PDF (Download):*\n${pdfUrl}`)
+      parts.push('\n✅ *Dawai samay par lein. Shubhkaamnayein!*')
+      const msg = encodeURIComponent(parts.join('\n'))
       window.open(`https://wa.me/${normalized}?text=${msg}`, '_blank', 'noopener,noreferrer')
+      return
     }
 
     if (!audioUrl && !pdfUrl) {
@@ -244,15 +182,29 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
             {audioUrl && <VoicePlayer src={audioUrl} script={scriptText} />}
 
             {/* Direct WhatsApp sharing action button */}
-            {(audioUrl || pdfUrl) && (
+            {(audioUrl || pdfUrl || deepLink) && (
               <button
                 onClick={shareVoiceAndPdf}
-                title="Share Voice Note & PDF via WhatsApp"
+                title="Send Voice Note & PDF via WhatsApp"
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#1ebe5d] shadow-2xs transition"
               >
                 <WhatsAppIcon className="h-4 w-4 fill-white" />
-                <span>Share Voice &amp; Prescription</span>
+                <span>Send via WhatsApp</span>
               </button>
+            )}
+
+            {/* Direct PDF Download button for mobile & desktop */}
+            {pdfUrl && (
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                download="prescription.pdf"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+              >
+                <Download size={14} />
+                <span>Download Prescription PDF</span>
+              </a>
             )}
 
             {/* Expandable in-browser PDF preview iframe */}
