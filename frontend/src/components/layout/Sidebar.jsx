@@ -4,8 +4,7 @@ import {
   Mic,
   FileText,
   Settings,
-  User,
-  Sparkles
+  User
 } from 'lucide-react'
 
 // Primary desktop sidebar navigation link definitions
