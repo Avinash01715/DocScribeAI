@@ -19,6 +19,12 @@ from dotenv import load_dotenv
 # Load environment configuration early from .env
 load_dotenv()
 
+# Allowed origins for cross-origin requests from frontend client
+allowed_origins_list = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,http://127.0.0.1:3000"
+).split(",")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
