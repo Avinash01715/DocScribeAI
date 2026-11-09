@@ -19,7 +19,7 @@ import { MOCK_TRANSCRIPT, MOCK_PRESCRIPTION } from '../data/mockData'
  */
 
 // Default WebSocket configuration constants and timer thresholds
-const DEFAULT_WS_URL = 'ws://127.0.0.1:8000/ws/consultation'
+const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8000/ws/consultation'
 const HEARTBEAT_INTERVAL_MS = 20000 // 20s heartbeat keep-alive
 const INITIAL_RETRY_DELAY_MS = 1000 // 1s initial exponential backoff delay
 const MAX_RETRY_DELAY_MS = 16000 // 16s cap for exponential backoff
