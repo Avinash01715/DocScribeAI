@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Eye, EyeOff, FileText, Loader2, Sparkles, X } from 'lucide-react'
+import { CheckCircle2, Eye, EyeOff, Loader2, Sparkles, X } from 'lucide-react'
 import VoicePlayer from './VoicePlayer'
 
 /**
@@ -41,6 +41,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
   const pdfUrl = result?.pdf_receipt?.url || result?.pdf_url || null
   const deepLink = result?.whatsapp_deep_link || null
   const scriptText = result?.voice_note?.script || result?.narrative_text || ''
+  const [pdfFile, setPdfFile] = useState(null)
 
   const handleClose = () => {
     setError('')
@@ -64,6 +65,21 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
       .catch((err) => console.warn('Audio prep failed:', err))
     return () => { cancelled = true }
   }, [audioUrl])
+
+  // Pre-fetch PDF as Blob for Web Share API
+  useEffect(() => {
+    if (!pdfUrl) { setPdfFile(null); return }
+    let cancelled = false
+    fetch(pdfUrl)
+      .then((r) => { if (!r.ok) throw new Error('PDF fetch failed.'); return r.blob() })
+      .then((blob) => {
+        if (cancelled) return
+        const cleanBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' })
+        setPdfFile(new File([cleanBlob], 'prescription.pdf', { type: 'application/pdf' }))
+      })
+      .catch((err) => console.warn('PDF prep failed:', err))
+    return () => { cancelled = true }
+  }, [pdfUrl])
 
   useEffect(() => {
     if (!open) return
@@ -92,27 +108,50 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
     }
   }
 
-  const shareAudioViaWhatsApp = async () => {
-    if (canShareFile) {
+  // Single handler: shares voice note + PDF together
+  const shareVoiceAndPdf = async () => {
+    setError('')
+
+    const canSharePdfFile =
+      !!pdfFile &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [pdfFile] })
+
+    // Try sharing both files at once via Web Share API
+    if (canShareFile || canSharePdfFile) {
+      const filesToShare = [
+        ...(canShareFile ? [audioFile] : []),
+        ...(canSharePdfFile ? [pdfFile] : []),
+      ]
       try {
         await navigator.share({
-          files: [audioFile],
-          title: 'Prescription Voice Note',
-          text: scriptText || 'Namaste, aapki prescription audio note taiyyar hai.',
+          files: filesToShare,
+          title: 'Prescription',
+          text: scriptText || 'Namaste, aapki prescription taiyyar hai.',
         })
         return
       } catch (e) {
         if (e.name === 'AbortError') return
+        // fall through to WhatsApp deep-link fallback
       }
     }
-    if (deepLink) window.open(deepLink, '_blank', 'noopener,noreferrer')
-    else setError('Sharing not supported on this device.')
-  }
 
-  const sharePdfViaWhatsApp = () => {
-    if (!pdfUrl || !normalized) return
-    const msg = encodeURIComponent(`Prescription PDF: ${pdfUrl}`)
-    window.open(`https://wa.me/${normalized}?text=${msg}`, '_blank', 'noopener,noreferrer')
+    // Fallback: open WhatsApp with voice deep-link first, then PDF message
+    if (audioUrl && deepLink) {
+      window.open(deepLink, '_blank', 'noopener,noreferrer')
+    }
+
+    // Send PDF as a bare URL so WhatsApp auto-renders it as a clickable link
+    if (pdfUrl && normalized) {
+      const msg = encodeURIComponent(
+        `📋 *Prescription PDF*\n${pdfUrl}`
+      )
+      window.open(`https://wa.me/${normalized}?text=${msg}`, '_blank', 'noopener,noreferrer')
+    }
+
+    if (!audioUrl && !pdfUrl) {
+      setError('Nothing to share.')
+    }
   }
 
   return (
@@ -176,7 +215,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
           <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs font-bold text-rose-800">{error}</p>
         )}
 
-        {/* Output Section with WhatsApp Symbols */}
+        {/* Output Section */}
         {result && (
           <div className="space-y-3 pt-1">
 
@@ -186,49 +225,33 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
               <span>Ready for +{normalized}</span>
             </div>
 
-            {/* 1. Voice Player */}
+            {/* Voice Player */}
             {audioUrl && <VoicePlayer src={audioUrl} script={scriptText} />}
 
-            {/* 2 & 3. Minimalist WhatsApp Action Grid with WhatsApp Symbols */}
-            <div className="grid grid-cols-2 gap-2">
-              {/* Share Voice Button with WhatsApp symbol */}
-              {audioUrl && (
-                <button
-                  onClick={shareAudioViaWhatsApp}
-                  title="Share Voice Note on WhatsApp"
-                  className="flex items-center justify-center gap-1.5 rounded-xl bg-[#25D366] px-3 py-2.5 text-xs font-bold text-white hover:bg-[#1ebe5d] shadow-2xs transition"
-                >
-                  <WhatsAppIcon className="h-4 w-4 fill-white" />
-                  <span>Share Voice</span>
-                </button>
-              )}
+            {/* Single combined Share button */}
+            {(audioUrl || pdfUrl) && (
+              <button
+                onClick={shareVoiceAndPdf}
+                title="Share Voice Note & PDF via WhatsApp"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#1ebe5d] shadow-2xs transition"
+              >
+                <WhatsAppIcon className="h-4 w-4 fill-white" />
+                <span>Share Voice &amp; Prescription</span>
+              </button>
+            )}
 
-              {/* Share PDF Button with WhatsApp symbol */}
-              {pdfUrl && normalized && (
-                <button
-                  onClick={sharePdfViaWhatsApp}
-                  title="Share Prescription PDF on WhatsApp"
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-[#25D366] bg-[#25D366]/10 px-3 py-2.5 text-xs font-bold text-[#128C7E] hover:bg-[#25D366]/20 transition"
-                >
-                  <WhatsAppIcon className="h-4 w-4 fill-[#128C7E]" />
-                  <span>Share PDF</span>
-                </button>
-              )}
-            </div>
-
-            {/* 4. Minimalist PDF Preview Toggle */}
+            {/* PDF Preview Toggle with clickable link */}
             {pdfUrl && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
-                <button
-                  onClick={() => setShowPdfEmbed(!showPdfEmbed)}
-                  className="flex w-full items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100 transition"
-                >
-                  <span className="flex items-center gap-1.5">
+                <div className="flex w-full items-center justify-between px-3.5 py-2">
+                  <button
+                    onClick={() => setShowPdfEmbed(!showPdfEmbed)}
+                    className="flex items-center gap-1.5 text-xs font-bold text-slate-800 hover:text-teal-700 transition"
+                  >
                     {showPdfEmbed ? <EyeOff size={14} className="text-teal-600" /> : <Eye size={14} className="text-teal-600" />}
-                    <span>{showPdfEmbed ? 'Close PDF Preview' : 'Preview PDF'}</span>
-                  </span>
-                  <FileText size={13} className="text-slate-400" />
-                </button>
+                    <span>{showPdfEmbed ? 'Close Prescription Preview' : 'Preview Prescription'}</span>
+                  </button>
+                </div>
                 {showPdfEmbed && (
                   <div className="border-t border-slate-200 bg-white">
                     <iframe src={pdfUrl} title="Prescription PDF" className="h-60 w-full" />
