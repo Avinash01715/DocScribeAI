@@ -20,11 +20,14 @@ from app.schemas.consultation import (
 from app.utils.pdf_generator import generate_prescription_pdf
 from app.services.gnani.timbre_service import synthesize_timbre_audio, timbre_service
 
+# Initialize service logger
 logger = logging.getLogger("dhanvantari.orchestrator")
 
+# Server base URL for building absolute resource links
 SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://127.0.0.1:8000")
 
 
+# Normalize input phone numbers into 12-digit Indian format (91XXXXXXXXXX)
 def normalize_indian_phone(phone: str) -> str:
     """Normalizes phone numbers to Indian E.164 without '+' for wa.me links."""
     digits = re.sub(r"\D", "", phone)
@@ -35,6 +38,7 @@ def normalize_indian_phone(phone: str) -> str:
     return digits
 
 
+# Build structured Hindi/English summary text for WhatsApp messaging
 def build_whatsapp_narrative(request: ConsultationCompleteRequest) -> str:
     """Creates a structured text summary optimized for WhatsApp rendering."""
     p_name = request.patient_info.name
@@ -60,10 +64,13 @@ def build_whatsapp_narrative(request: ConsultationCompleteRequest) -> str:
     return "\n".join(lines)
 
 
+# Orchestrates end-to-end consultation workflow: PDF, TTS, and WhatsApp deep links
 class ConsultationOrchestrator:
+    # Initialize service with base application URL
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = (base_url or SERVER_BASE_URL).rstrip("/")
 
+    # Concurrently generate PDF prescription and vernacular audio note, then assemble WhatsApp response
     async def complete_consultation(
         self, request: ConsultationCompleteRequest
     ) -> ConsultationCompleteResponse:
@@ -118,6 +125,7 @@ class ConsultationOrchestrator:
             narrative_text=message_body,
         )
 
+    # Safely synthesize vernacular Hindi MP3 voice note with error fallback
     async def _safe_synthesize_audio(
         self, request: ConsultationCompleteRequest, sanitized_name: str, timestamp: str
     ) -> Optional[str]:
@@ -142,4 +150,5 @@ class ConsultationOrchestrator:
             return None
 
 
+# Global consultation orchestrator singleton
 orchestrator = ConsultationOrchestrator()

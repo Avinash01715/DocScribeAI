@@ -1,4 +1,4 @@
-// Medicine ke fields. "required" wale khali hon to doctor approve nahi kar sakta
+// Form field definitions and validation requirements for each medication item
 export const MED_FIELDS = [
   { key: 'drug_name', label: 'Medicine', required: true, span: 'sm:col-span-2' },
   { key: 'dosage', label: 'Dosage', required: true },
@@ -7,11 +7,11 @@ export const MED_FIELDS = [
   { key: 'duration', label: 'Duration', required: true },
 ]
 
-// Ek medicine mein kaun si zaroori fields khali hain
+// Identify any required medication fields that are empty or missing
 export const missingFields = (med) =>
   MED_FIELDS.filter((f) => f.required && !String(med[f.key] || '').trim()).map((f) => f.label)
 
-// Backend ke prescription mein har medicine par frontend-only `uid` lagao (React key ke liye)
+// Attach unique client-side identifiers (uid) to each medication for React list keys
 export const withUids = (data) => ({
   ...data,
   prescription: (data.prescription || []).map((m, i) => ({ ...m, uid: `m${Date.now()}_${i}` })),

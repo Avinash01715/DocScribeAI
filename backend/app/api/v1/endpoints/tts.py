@@ -10,11 +10,14 @@ from pydantic import BaseModel, Field
 
 from app.services.gnani.timbre_service import timbre_service, DEFAULT_SAMPLE_RATE
 
+# Configure module-level logger
 logger = logging.getLogger("dhanvantari.tts_proxy")
 
+# TTS router declaration
 router = APIRouter(prefix="/tts", tags=["TTS Proxy"])
 
 
+# Inbound request model for speech synthesis proxy
 class TTSProxyRequest(BaseModel):
     text: str = Field(
         ...,
@@ -43,6 +46,7 @@ class TTSProxyRequest(BaseModel):
     )
 
 
+# POST endpoint: proxies text synthesis to Timbre TTS and returns raw WAV stream
 @router.post(
     "/synthesize",
     summary="Synthesize speech with linear PCM 16kHz WAV container",
@@ -88,6 +92,7 @@ async def proxy_synthesize_post(request: TTSProxyRequest):
         )
 
 
+# GET endpoint: allows direct embedding of synthesized audio into HTML5 audio tags
 @router.get(
     "/synthesize",
     summary="GET endpoint for direct HTML5 <audio src='...'> streaming",

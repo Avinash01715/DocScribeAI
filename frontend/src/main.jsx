@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 
-// BrowserRouter se pure app mein routing chalega
+// Mount application root with React StrictMode and HTML5 client-side routing
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>

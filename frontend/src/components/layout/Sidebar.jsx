@@ -8,6 +8,7 @@ import {
   Sparkles
 } from 'lucide-react'
 
+// Primary desktop sidebar navigation link definitions
 const sideItems = [
   { label: 'Dashboard',    icon: LayoutDashboard, path: '/' },
   { label: 'Consultation', icon: Mic,              path: '/consultation' },
@@ -15,6 +16,7 @@ const sideItems = [
   { label: 'Settings',     icon: Settings,         path: '/settings' },
 ]
 
+// Mobile bottom navigation bar link definitions
 const bottomItems = [
   { label: 'Dashboard',    icon: LayoutDashboard, path: '/' },
   { label: 'Consultation', icon: Mic,              path: '/consultation' },
@@ -22,10 +24,11 @@ const bottomItems = [
   { label: 'Profile',      icon: User,             path: '/profile' },
 ]
 
+// Desktop fixed sidebar component
 export default function Sidebar() {
   return (
     <aside className="hidden w-64 shrink-0 fixed top-14 bottom-0 left-0 z-30 md:flex md:flex-col md:justify-between border-r border-slate-200 bg-white p-4 shadow-2xs">
-      {/* Navigation */}
+      {/* Primary navigation menu */}
       <div>
         <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
           Menu
@@ -51,7 +54,7 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      {/* Bottom: Doctor Profile Details (Rendered once on web) */}
+      {/* Clinician badge at bottom of sidebar */}
       <div className="pt-3 border-t border-slate-100">
         <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-600 font-bold text-white text-xs">
@@ -67,6 +70,7 @@ export default function Sidebar() {
   )
 }
 
+// Mobile bottom navigation component for smaller screen viewports
 export function BottomNav() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-slate-200 bg-white py-2 shadow-md md:hidden">

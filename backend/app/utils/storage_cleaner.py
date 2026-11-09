@@ -1,3 +1,4 @@
+# backend/app/utils/storage_cleaner.py
 import os
 import time
 import logging
@@ -5,9 +6,12 @@ import asyncio
 from pathlib import Path
 from typing import Tuple, List
 
+# Initialize module logger
 logger = logging.getLogger("dhanvantari.storage_cleaner")
 
+# Utility class to manage storage retention via TTL pruning and LRU quota enforcement
 class StorageCleaner:
+    # Initialize directory target, TTL threshold, and maximum byte capacity
     def __init__(
         self,
         directory: Path,
@@ -21,6 +25,7 @@ class StorageCleaner:
         self.target_size_bytes = int(self.max_size_bytes * target_reclaim_ratio)
         self.directory.mkdir(parents=True, exist_ok=True)
 
+    # Scan directory entries efficiently without loading file payloads
     def _get_directory_entries(self) -> List[os.DirEntry]:
         """Scan directory entries efficiently without loading entire file payloads."""
         try:
@@ -30,6 +35,7 @@ class StorageCleaner:
             logger.error(f"Failed to scan directory {self.directory}: {e}")
             return []
 
+    # Purge files exceeding the maximum time-to-live threshold
     def _purge_expired_files(self, entries: List[os.DirEntry], now: float) -> Tuple[List[os.DirEntry], int, int]:
         """Pass 1: Purge files exceeding the absolute TTL window."""
         remaining_entries = []
@@ -47,13 +53,14 @@ class StorageCleaner:
                 else:
                     remaining_entries.append(entry)
             except FileNotFoundError:
-                # Handled concurrently deleted files gracefully
+                # Handle concurrently deleted files gracefully
                 continue
             except OSError as e:
                 logger.warning(f"Error unlinking TTL-expired file {entry.path}: {e}")
 
         return remaining_entries, deleted_count, reclaimed_bytes
 
+    # Evict oldest files according to LRU policy when directory size exceeds limit
     def _enforce_quota_lru(self, entries: List[os.DirEntry]) -> Tuple[int, int]:
         """Pass 2: Least Recently Modified (LRU) pruning if directory exceeds max cap."""
         current_total_size = sum(entry.stat().st_size for entry in entries if entry.is_file())
@@ -81,6 +88,7 @@ class StorageCleaner:
 
         return deleted_count, reclaimed_bytes
 
+    # Run complete cleanup cycle: TTL pruning followed by quota pruning
     def run_cleanup_cycle(self) -> dict:
         """Executes a single maintenance cycle synchronously."""
         now = time.time()
@@ -107,6 +115,7 @@ class StorageCleaner:
             "reclaimed_mb": total_reclaimed_mb
         }
 
+# Background worker running periodic cleanup cycles
 async def storage_retention_daemon(
     cleaners: List[StorageCleaner],
     interval_seconds: int

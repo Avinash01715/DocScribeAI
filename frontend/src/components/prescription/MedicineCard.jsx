@@ -5,6 +5,7 @@ import { MED_FIELDS, missingFields } from '../../utils/prescription'
  * MedicineCard.jsx - Structured Prescription Item (Minimalist Light Clinical)
  */
 
+// Parse matrix frequency string (e.g. 1 - 1 - 1) into Morning, Noon, and Night dosage slots
 function parseFrequencySlots(freqStr) {
   if (!freqStr) return null
   const parts = String(freqStr).replace(/\s/g, '').split(/[-/]/)
@@ -18,6 +19,7 @@ function parseFrequencySlots(freqStr) {
   return null
 }
 
+// Generate review reason message if medicine match confidence is below threshold
 function reviewReason(med) {
   if (!med.requires_review && (med.confidence_score ?? 100) >= 75) return null
   const match = med.verified_match
@@ -26,6 +28,7 @@ function reviewReason(med) {
   return `${match}Please verify.`
 }
 
+// Individual editable medicine card component with fuzzy formulary validation feedback
 export default function MedicineCard({ med, onChange, onRemove }) {
   const missing = missingFields(med)
   const reason = reviewReason(med)
@@ -44,7 +47,7 @@ export default function MedicineCard({ med, onChange, onRemove }) {
           : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
       }`}
     >
-      {/* Header */}
+      {/* Header with medicine label and verification status badge */}
       <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
         <div className="flex items-center gap-1.5">
           <Pill size={15} className="text-teal-600" />
@@ -53,7 +56,7 @@ export default function MedicineCard({ med, onChange, onRemove }) {
           </span>
         </div>
 
-        {/* Verification Status */}
+        {/* Verification status badges */}
         <div className="flex items-center gap-1.5">
           {isHighConfidence && (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
@@ -71,7 +74,7 @@ export default function MedicineCard({ med, onChange, onRemove }) {
         </div>
       </div>
 
-      {/* Inputs */}
+      {/* Editable input fields for dosage, frequency, timing, and duration */}
       <div className="grid gap-2 sm:grid-cols-2">
         {MED_FIELDS.map((f) => {
           const empty = f.required && !String(med[f.key] || '').trim()
@@ -93,7 +96,7 @@ export default function MedicineCard({ med, onChange, onRemove }) {
         })}
       </div>
 
-      {/* Frequency Visualizer */}
+      {/* Visual representation of morning, noon, and night medication doses */}
       <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-bold text-slate-700">Schedule:</span>
@@ -124,7 +127,7 @@ export default function MedicineCard({ med, onChange, onRemove }) {
         </span>
       </div>
 
-      {/* Review Callout */}
+      {/* Review warning banner with quick-confirmation button */}
       {reason && (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 rounded-xl border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-900">
           <div className="flex items-center gap-1.5 font-semibold text-[11px]">
@@ -143,13 +146,14 @@ export default function MedicineCard({ med, onChange, onRemove }) {
         </div>
       )}
 
+      {/* Warning for unpopulated required fields */}
       {missing.length > 0 && (
         <p className="mt-1 text-[11px] font-bold text-amber-800">
           Missing: {missing.join(', ')}
         </p>
       )}
 
-      {/* Remove */}
+      {/* Button to remove this medication item */}
       <div className="mt-2 flex justify-end">
         <button
           onClick={() => onRemove(med.uid)}

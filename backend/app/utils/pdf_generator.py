@@ -13,6 +13,7 @@ PDF_OUTPUT_DIR = BASE_DIR / "data" / "pdf_prescriptions"
 PDF_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# Sanitize text by converting Devanagari to Hinglish and encoding for Latin-1 PDF output
 def safe_str(val: Any) -> str:
     """Sanitizes text by converting Devanagari to Hinglish and encoding cleanly for FPDF."""
     if val is None:
@@ -22,11 +23,14 @@ def safe_str(val: Any) -> str:
     return text.encode("latin-1", "replace").decode("latin-1")
 
 
+# Custom FPDF subclass defining OPD prescription document layout and branding
 class ClinicalPrescriptionPDF(FPDF):
+    # Initialize PDF instance with default font
     def __init__(self, font_name="Helvetica", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.font_name = font_name
 
+    # Render top banner with clinic branding and ABDM compliance notice
     def header(self):
         # Deep Slate header banner
         self.set_fill_color(15, 23, 42)
@@ -38,6 +42,7 @@ class ClinicalPrescriptionPDF(FPDF):
         self.cell(0, 5, "Ayushman Bharat Digital Mission (ABDM) Compliant Partner", ln=True, align="C")
         self.ln(12)
 
+    # Render footer with digital transcribing notice and page number
     def footer(self):
         self.set_y(-20)
         self.set_font(self.font_name, "I", 8)
@@ -46,6 +51,7 @@ class ClinicalPrescriptionPDF(FPDF):
         self.cell(0, 5, f"Page {self.page_no()}", align="C")
 
 
+# Helper to safely retrieve attributes from dictionaries or Pydantic models
 def _get_val(obj: Any, key: str, default: Any = None) -> Any:
     """Extracts values whether obj is a Pydantic model, an object, or a dict."""
     if obj is None:
@@ -55,6 +61,7 @@ def _get_val(obj: Any, key: str, default: Any = None) -> Any:
     return getattr(obj, key, default)
 
 
+# Generate standardized prescription PDF document from consultation details
 def generate_prescription_pdf(
     data: Any = None,
     doctor_name: str = "Dr. Sharma, MBBS, MD",
@@ -81,7 +88,7 @@ def generate_prescription_pdf(
 
     pdf = ClinicalPrescriptionPDF(font_name="Helvetica")
 
-    # Font fallback handling
+    # Font fallback handling: use Arial Unicode if available on Windows
     arial_path = Path("C:/Windows/Fonts/Arial.ttf")
     arial_bold = Path("C:/Windows/Fonts/arialbd.ttf")
     arial_italic = Path("C:/Windows/Fonts/ariali.ttf")
@@ -176,7 +183,7 @@ def generate_prescription_pdf(
     pdf.set_font(fn, "I", 9)
     pdf.cell(0, 6, "Doctor's Signature", ln=True, align="R")
 
-    # Generate unique filename
+    # Generate unique filename for output PDF
     if filename_suffix:
         clean_suffix = re.sub(r"[^\w\-]", "_", filename_suffix)
         filename = f"prescription_{clean_suffix}.pdf"

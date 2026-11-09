@@ -5,18 +5,22 @@ import { ChevronDown, ChevronUp, FileAudio, Headphones, Pause, Play, Sparkles } 
  * VoicePlayer.jsx - Production Audio Player (Minimalist Light Clinical)
  */
 
+// Base API URL and audio playback speed presets
 const API_BASE = 'http://127.0.0.1:8000'
 const SPEED_OPTIONS = [1.0, 1.25, 1.5, 2.0]
 
+// Format seconds into MM:SS display format
 const fmt = (s) => {
   if (!Number.isFinite(s) || s <= 0) return '0:00'
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 }
 
+// Media player component for listening to generated vernacular patient voice notes
 export default function VoicePlayer({ src, script = '' }) {
   const audioRef = useRef(null)
   const objectUrlRef = useRef(null)
 
+  // Playback and format state variables
   const [playing, setPlaying] = useState(false)
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -26,12 +30,14 @@ export default function VoicePlayer({ src, script = '' }) {
   const [accordionOpen, setAccordionOpen] = useState(false)
   const [audioFormat, setAudioFormat] = useState('mp3')
 
+  // Resolve relative endpoint paths into absolute URLs
   const resolvedSrc = src
     ? src.startsWith('/')
       ? `${API_BASE}${src}`
       : src
     : null
 
+  // Fetch audio stream into memory blob and create local Object URL for reliable browser streaming
   useEffect(() => {
     if (!resolvedSrc) {
       if (objectUrlRef.current) {
@@ -45,6 +51,7 @@ export default function VoicePlayer({ src, script = '' }) {
     setLoading(true)
     setError('')
 
+    // Async loader detecting container format (MP3 vs WAV) and loading into audio element
     async function loadAudio() {
       try {
         const response = await fetch(resolvedSrc)
@@ -84,6 +91,7 @@ export default function VoicePlayer({ src, script = '' }) {
 
     loadAudio()
 
+    // Clean up revoked Object URL on unmount or URL change
     return () => {
       cancelled = true
       if (objectUrlRef.current) {
@@ -93,10 +101,12 @@ export default function VoicePlayer({ src, script = '' }) {
     }
   }, [resolvedSrc])
 
+  // Synchronize audio element playback rate with selected speed
   useEffect(() => {
     if (audioRef.current) audioRef.current.playbackRate = speed
   }, [speed])
 
+  // Toggle between play and pause states
   const toggle = async () => {
     const audio = audioRef.current
     if (!audio) return
@@ -114,12 +124,14 @@ export default function VoicePlayer({ src, script = '' }) {
     }
   }
 
+  // Handle timeline scrubber seek changes
   const seek = (e) => {
     const t = Number(e.target.value)
     if (audioRef.current) audioRef.current.currentTime = t
     setCurrent(t)
   }
 
+  // Cycle through available playback speed options (1.0x, 1.25x, 1.5x, 2.0x)
   const cycleSpeed = () => {
     setSpeed((prev) => {
       const idx = SPEED_OPTIONS.indexOf(prev)
@@ -129,6 +141,7 @@ export default function VoicePlayer({ src, script = '' }) {
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+      {/* Player header with container format badge */}
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
           <Headphones size={14} className="text-teal-600" />
@@ -143,6 +156,7 @@ export default function VoicePlayer({ src, script = '' }) {
         <p className="mt-2 text-xs font-medium text-slate-400">Audio not generated.</p>
       ) : (
         <>
+          {/* HTML5 audio element binding playback listeners */}
           <audio
             ref={audioRef}
             preload="metadata"
@@ -159,6 +173,7 @@ export default function VoicePlayer({ src, script = '' }) {
             onError={() => { setPlaying(false); setError('Playback error.') }}
           />
 
+          {/* Player controls: Play/Pause button, timeline slider, and speed toggler */}
           <div className="mt-2.5 flex items-center gap-2.5">
             <button
               onClick={toggle}
@@ -169,6 +184,7 @@ export default function VoicePlayer({ src, script = '' }) {
               {playing ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
             </button>
 
+            {/* Time progress bar */}
             <div className="flex-1">
               <input
                 type="range"
@@ -185,6 +201,7 @@ export default function VoicePlayer({ src, script = '' }) {
               </div>
             </div>
 
+            {/* Playback speed multiplier button */}
             <button
               onClick={cycleSpeed}
               className="shrink-0 rounded-lg border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-mono font-bold text-slate-800 hover:bg-slate-100 transition shadow-2xs"
@@ -195,6 +212,7 @@ export default function VoicePlayer({ src, script = '' }) {
         </>
       )}
 
+      {/* Spoken vernacular script accordion */}
       {script && (
         <div className="mt-2.5 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80">
           <button
@@ -215,6 +233,7 @@ export default function VoicePlayer({ src, script = '' }) {
         </div>
       )}
 
+      {/* Audio playback error message */}
       {error && <p className="mt-1 text-xs font-bold text-rose-700">{error}</p>}
     </section>
   )

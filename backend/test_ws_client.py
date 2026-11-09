@@ -1,7 +1,9 @@
+# backend/test_ws_client.py
 import asyncio
 import json
 import websockets
 
+# WebSocket endpoint URL for consultation stream
 WS_URI = "ws://127.0.0.1:8000/ws/consultation"
 
 # Blueprint consultation transcript matching high-density OPD scenario
@@ -15,12 +17,13 @@ TEST_PAYLOAD = {
     )
 }
 
+# Connect to WebSocket, trigger extraction, and verify structured prescription payload
 async def run_verification():
     print(f"[*] Connecting to {WS_URI}...")
     headers = [("Origin", "http://127.0.0.1:8000")]
     
     try:
-        # websockets v13+ uses additional_headers; older versions use extra_headers
+        # Establish connection with compatible headers for websockets library versions
         try:
             conn = websockets.connect(WS_URI, additional_headers=headers)
         except TypeError:
@@ -28,9 +31,11 @@ async def run_verification():
 
         async with conn as ws:
             print("[+] Connection established successfully.")
+            # Dispatch test transcript action payload
             print("[*] Sending test consultation payload...")
             await ws.send(json.dumps(TEST_PAYLOAD))
             
+            # Await structured prescription response
             print("[*] Awaiting structured clinical extraction...")
             response = await ws.recv()
             data = json.loads(response)
@@ -38,6 +43,7 @@ async def run_verification():
             print("\n[+] Verification SUCCESS! Received Payload:\n")
             print(json.dumps(data, indent=2))
             
+            # Assert structured cards format and extracted medications count
             assert data.get("type") == "STRUCTURED_CARDS", "Invalid frame type"
             prescription = data["payload"]["prescription"]
             assert len(prescription) >= 2, "Expected at least 2 medications extracted"
@@ -46,5 +52,6 @@ async def run_verification():
     except Exception as exc:
         print(f"[!] Test failed with exception: {exc}")
 
+# Main script entry point
 if __name__ == "__main__":
     asyncio.run(run_verification())

@@ -13,14 +13,16 @@ import { withUids } from '../utils/prescription'
  * Consultation.jsx - Real-Time Ambient Clinical Console (Minimalist Light Clinical)
  */
 
+// Line counter and endpoint configurations
 let lineId = 0
 const WS_URL = 'ws://127.0.0.1:8000/ws/consultation'
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
+// Live consultation page managing audio recording, real-time transcription, prescription review, and WhatsApp dispatch
 export default function Consultation() {
   const navigate = useNavigate()
 
-  // Local UI State
+  // Local UI state variables
   const [lines, setLines] = useState([])
   const [recording, setRecording] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -30,7 +32,7 @@ export default function Consultation() {
   const [shareOpen, setShareOpen] = useState(false)
   const timerRef = useRef(null)
 
-  // Message Handler for incoming backend frames
+  // Handle incoming WebSocket messages (transcripts, reasoning status, and extracted prescriptions)
   const handleMessage = useCallback((msg) => {
     if (msg.type === 'TRANSCRIPT' || msg.type === 'TRANSCRIPT_UPDATE') {
       const token = msg.text || msg.interim || msg.transcript
@@ -58,19 +60,23 @@ export default function Consultation() {
     }
   }, [])
 
+  // Initialize WebSocket streaming hook
   const ws = useWebSocket({
     url: WS_URL,
     mock: false,
     onMessage: handleMessage,
   })
 
+  // Clear pending timers on component unmount
   useEffect(() => () => clearTimeout(timerRef.current), [])
 
+  // Update prescription data in state and reset doctor approval flag
   const handleEdit = (next) => {
     setPrescription(next)
     setApproved(false)
   }
 
+  // Call backend WhatsApp dispatch endpoint to compile PDF and synthesize regional TTS audio
   const handlePrepare = async (phone) => {
     const cleanPhone = phone.replace(/\D/g, '')
     const res = await fetch(`${API_BASE_URL}/api/v1/whatsapp/dispatch`, {
@@ -89,6 +95,7 @@ export default function Consultation() {
 
     const data = await res.json()
 
+    // Prefix relative asset URLs with backend server address
     if (data.voice_note?.audio_url?.startsWith('/')) {
       data.voice_note.audio_url = `${API_BASE_URL}${data.voice_note.audio_url}`
     }
@@ -99,6 +106,7 @@ export default function Consultation() {
     return data
   }
 
+  // Start new recording consultation session and open WebSocket stream
   const handleStartConsultation = () => {
     setLines([])
     setPrescription(null)
@@ -108,6 +116,7 @@ export default function Consultation() {
     setRecording(true)
   }
 
+  // Stop recording and trigger LLM clinical extraction
   const handleProcessConsultation = () => {
     setRecording(false)
     setProcessing(true)
@@ -115,6 +124,7 @@ export default function Consultation() {
     ws.triggerProcess()
   }
 
+  // Reset current consultation state and notify backend
   const handleResetSession = () => {
     setRecording(false)
     setProcessing(false)
@@ -127,7 +137,7 @@ export default function Consultation() {
 
   return (
     <DashboardLayout>
-      {/* Return Button */}
+      {/* Return button navigating back to Dashboard */}
       <button
         onClick={() => navigate('/')}
         className="mb-4 inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-950 transition"
@@ -157,7 +167,7 @@ export default function Consultation() {
           />
         </div>
 
-        {/* AI Progress */}
+        {/* AI extraction reasoning progress alert */}
         {processing && (
           <div className="flex items-center gap-2.5 rounded-2xl border border-teal-200 bg-teal-50 p-3.5 text-teal-900 shadow-xs">
             <Loader2 className="animate-spin text-teal-600" size={18} />
@@ -177,6 +187,7 @@ export default function Consultation() {
               onApprove={() => setApproved(true)}
             />
 
+            {/* Primary WhatsApp dispatch trigger */}
             <div className="space-y-1.5 pt-1">
               <button
                 onClick={() => setShareOpen(true)}
@@ -195,7 +206,7 @@ export default function Consultation() {
           </>
         )}
 
-        {/* WhatsApp Output Modal */}
+        {/* Modal dialog for WhatsApp delivery */}
         <WhatsAppModal
           open={shareOpen}
           onClose={() => setShareOpen(false)}
