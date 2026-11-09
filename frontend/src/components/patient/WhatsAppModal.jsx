@@ -58,7 +58,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
 
   // Pre-fetch synthesized audio as File blob for Web Share API support
   useEffect(() => {
-    if (!audioUrl) { setAudioFile(null); return }
+    if (!audioUrl) return
     let cancelled = false
     fetch(audioUrl)
       .then((r) => { if (!r.ok) throw new Error('Audio fetch failed.'); return r.blob() })
@@ -68,12 +68,15 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
         setAudioFile(new File([cleanBlob], 'prescription_voice_note.mp3', { type: 'audio/mpeg' }))
       })
       .catch((err) => console.warn('Audio prep failed:', err))
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      setAudioFile(null)
+    }
   }, [audioUrl])
 
   // Pre-fetch generated prescription PDF as File blob for Web Share API support
   useEffect(() => {
-    if (!pdfUrl) { setPdfFile(null); return }
+    if (!pdfUrl) return
     let cancelled = false
     fetch(pdfUrl)
       .then((r) => { if (!r.ok) throw new Error('PDF fetch failed.'); return r.blob() })
@@ -83,7 +86,10 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
         setPdfFile(new File([cleanBlob], 'prescription.pdf', { type: 'application/pdf' }))
       })
       .catch((err) => console.warn('PDF prep failed:', err))
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      setPdfFile(null)
+    }
   }, [pdfUrl])
 
   // Listen for Escape keyboard shortcut to close modal

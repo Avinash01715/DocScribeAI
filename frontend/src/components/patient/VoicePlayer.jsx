@@ -48,11 +48,11 @@ export default function VoicePlayer({ src, script = '' }) {
     }
 
     let cancelled = false
-    setLoading(true)
-    setError('')
 
     // Async loader detecting container format (MP3 vs WAV) and loading into audio element
     async function loadAudio() {
+      setLoading(true)
+      setError('')
       try {
         const response = await fetch(resolvedSrc)
         if (!response.ok) throw new Error('Audio fetch failed')
@@ -82,7 +82,7 @@ export default function VoicePlayer({ src, script = '' }) {
           audioRef.current.load()
         }
         setLoading(false)
-      } catch (err) {
+      } catch {
         if (cancelled) return
         setError('Audio unavailable.')
         setLoading(false)
