@@ -15,8 +15,25 @@ import { withUids } from '../utils/prescription'
 
 // Line counter and endpoint configurations
 let lineId = 0
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8000/ws/consultation'
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+
+// Sanitize API and WebSocket URLs from environment variables
+const rawApiUrl = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').trim()
+const API_BASE_URL = rawApiUrl
+  .replace(/\/+$/, '')
+  .replace(/\/api\/v1\/?$/, '')
+  .replace(/\/api\/?$/, '')
+
+let rawWsUrl = (import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8000/ws/consultation').trim()
+if (rawWsUrl.startsWith('https://')) {
+  rawWsUrl = rawWsUrl.replace('https://', 'wss://')
+} else if (rawWsUrl.startsWith('http://')) {
+  rawWsUrl = rawWsUrl.replace('http://', 'ws://')
+}
+rawWsUrl = rawWsUrl.replace(/\/+$/, '')
+if (!rawWsUrl.includes('/ws')) {
+  rawWsUrl = `${rawWsUrl}/ws/consultation`
+}
+const WS_URL = rawWsUrl
 
 // Live consultation page managing audio recording, real-time transcription, prescription review, and WhatsApp dispatch
 export default function Consultation() {
@@ -79,7 +96,9 @@ export default function Consultation() {
   // Call backend WhatsApp dispatch endpoint to compile PDF and synthesize regional TTS audio
   const handlePrepare = async (phone) => {
     const cleanPhone = phone.replace(/\D/g, '')
-    const res = await fetch(`${API_BASE_URL}/api/v1/whatsapp/dispatch`, {
+    const targetUrl = `${API_BASE_URL}/api/v1/whatsapp/dispatch`.replace(/([^:]\/)\/+/g, '$1')
+    console.log('[DocScribeAI] Dispatching WhatsApp payload to:', targetUrl)
+    const res = await fetch(targetUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

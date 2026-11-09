@@ -247,6 +247,7 @@ app.mount("/static/pdf", StaticFiles(directory=str(PDF_DIR)), name="static_pdf")
 # Register REST and WebSocket API routes
 app.include_router(consultation_router, prefix="/api/v1", tags=["Consultation Orchestration"])
 app.include_router(whatsapp_router, prefix="/api/v1/whatsapp", tags=["WhatsApp"])
+app.include_router(whatsapp_router, prefix="/whatsapp", tags=["WhatsApp"])
 app.include_router(tts_router, prefix="/api/v1", tags=["TTS Proxy"])
 app.include_router(history_router, prefix="/api/v1", tags=["Prescription History"])
 app.include_router(ws_router, tags=["WebSocket Ingestion"])
