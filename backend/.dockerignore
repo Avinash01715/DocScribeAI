@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.git
+.gitignore
+app/data/audio_cache/*
+!app/data/audio_cache/.gitkeep
+app/data/pdf_prescriptions/*
+!app/data/pdf_prescriptions/.gitkeep
+tests/
+.pytest_cache/

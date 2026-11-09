@@ -3,7 +3,8 @@
 DhanvantariVoice API Gateway.
 Coordinates ambient WebSocket PCM ingestion, clinical LLM parsing,
 FPDF2 prescription generation, and high-performance MP3 voice note streaming.
-Features an automated background storage lifecycle retention engine.
+Features an automated background storage lifecycle retention engine and
+an embedded SQLite persistence repository for recent consultation history.
 """
 import os
 import time
@@ -27,6 +28,8 @@ from app.api.v1.endpoints.whatsapp import router as whatsapp_router
 from app.api.v1.endpoints.consultation import router as consultation_router
 from app.api.v1.endpoints.tts import router as tts_router
 from app.api.websockets.audio_stream import router as ws_router
+from app.api.v1.endpoints.history import router as history_router
+from app.services.history_service import history_repo
 
 # Configure centralized logger for application gateway
 logging.basicConfig(
@@ -43,8 +46,9 @@ mimetypes.add_type("application/pdf", ".pdf")
 
 # Define storage directories for cached audio and generated PDF files
 BASE_DIR = Path(__file__).resolve().parent
-AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
-PDF_DIR = BASE_DIR / "data" / "pdf_prescriptions"
+DATA_ROOT = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
+AUDIO_CACHE_DIR = DATA_ROOT / "audio_cache"
+PDF_DIR = DATA_ROOT / "pdf_prescriptions"
 
 # Storage retention policy parameters
 STORAGE_RETENTION_HOURS = int(os.getenv("STORAGE_RETENTION_HOURS", "48"))
@@ -160,12 +164,16 @@ async def storage_retention_daemon(managers: List[StorageRetentionManager], inte
 async def lifespan(app: FastAPI):
     """
     Production lifespan context manager.
-    Initializes storage directories and spawns the background eviction daemon.
+    Initializes storage directories, validates SQLite schema, and spawns the eviction daemon.
     """
     # Create required storage directories
     AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     PDF_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info("DhanvantariVoice storage volumes mounted and initialized.")
+    logger.info(f"DhanvantariVoice storage volumes mounted at: {DATA_ROOT}")
+
+    # Validate and warm up SQLite history repository
+    history_repo._init_db()
+    logger.info("Prescription history repository initialized (WAL Mode).")
 
     # Instantiate retention managers for audio and PDF directories
     audio_manager = StorageRetentionManager(
@@ -210,8 +218,9 @@ app = FastAPI(
 # Enable CORS middleware to allow cross-origin requests from frontend client
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=allowed_origins_list,
+    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",  # Permissive for all Vercel preview/production URLs
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=[
@@ -233,6 +242,7 @@ app.mount("/static/pdf", StaticFiles(directory=str(PDF_DIR)), name="static_pdf")
 app.include_router(consultation_router, prefix="/api/v1", tags=["Consultation Orchestration"])
 app.include_router(whatsapp_router, prefix="/api/v1/whatsapp", tags=["WhatsApp"])
 app.include_router(tts_router, prefix="/api/v1", tags=["TTS Proxy"])
+app.include_router(history_router, prefix="/api/v1", tags=["Prescription History"])
 app.include_router(ws_router, tags=["WebSocket Ingestion"])
 
 

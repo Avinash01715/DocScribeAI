@@ -1,12 +1,16 @@
-# backend/app/api/whatsapp.py
+# backend/app/api/v1/endpoints/whatsapp.py
 from pathlib import Path
 import urllib.parse
+import logging
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.schemas.prescription import PrescriptionExtractionResponse
 from app.services.gnani.timbre_service import timbre_service
 from app.utils.pdf_generator import generate_prescription_pdf
+from app.services.history_service import history_repo
+
+logger = logging.getLogger("dhanvantari.whatsapp")
 
 # Router for WhatsApp message compilation and dispatch
 router = APIRouter(tags=["WhatsApp"])
@@ -28,7 +32,8 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
     """
     1. Synthesizes vernacular dosage instructions via Gnani Timbre TTS (MP3).
     2. Compiles standardized PDF prescription via FPDF2.
-    3. Builds WhatsApp text summary and universal wa.me deep-link URL.
+    3. Persists consultation to SQLite history repository for fast recent lookup.
+    4. Builds WhatsApp text summary and universal wa.me deep-link URL.
     """
     # 1. Synthesize regional audio note in Hindi
     voice_note_result = await timbre_service.generate_voice_note(payload.prescription_data)
@@ -80,6 +85,21 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
     wa_deep_link = f"https://wa.me/{clean_phone}?text={encoded_text}"
 
     clean_pdf_name = Path(pdf_filename).name
+    pdf_static_url = f"/static/prescriptions/{clean_pdf_name}"
+
+    # 5. Persist Consultation Record in SQLite (Append-Only History)
+    try:
+        await history_repo.save_record({
+            "patient_name": patient_name,
+            "phone_number": clean_phone,
+            "diagnosis": diagnosis,
+            "medications_count": len(meds),
+            "audio_url": voice_note_result.get("audio_url"),
+            "pdf_url": pdf_static_url,
+            "full_payload_json": payload.prescription_data.model_dump()
+        })
+    except Exception as exc:
+        logger.error(f"Failed to record consultation to history repository: {exc}", exc_info=True)
 
     # Return dispatch details including links to audio, PDF, and WhatsApp
     return {
@@ -94,7 +114,7 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
         },
         "pdf_receipt": {
             "file_name": clean_pdf_name,
-            "url": f"/static/prescriptions/{clean_pdf_name}",
+            "url": pdf_static_url,
             "status": "generated"
         }
     }
