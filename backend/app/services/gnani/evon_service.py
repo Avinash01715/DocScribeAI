@@ -12,10 +12,13 @@ from app.schemas.prescription import PrescriptionExtractionResponse
 from app.utils.drug_matcher import drug_matcher
 from app.utils.hinglish import devanagari_to_hinglish
 
+# Initialize logger for Evon clinical extraction service
 logger = logging.getLogger("dhanvantari.evon")
 
+# Read Gemini API key from environment variables
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
+# System prompt instructing LLM to extract structured prescription in Latin/Roman script
 CLINICAL_EXTRACTION_PROMPT = """
 You are an expert Clinical AI Scribe operating in a high-volume Indian Outpatient Department (OPD).
 Analyze the doctor-patient consultation transcript (which may be in code-mixed Hinglish/English) and extract:
@@ -31,7 +34,9 @@ Important Rules:
 - Return ONLY valid JSON adhering strictly to the schema.
 """
 
+# Clinical extraction service using Gemini LLM with local formulary verification
 class EvonClinicalService:
+    # Initialize Gemini client if API key is present; otherwise fall back to mock mode
     def __init__(self):
         self.api_key = GEMINI_API_KEY
         if self.api_key:
@@ -40,15 +45,18 @@ class EvonClinicalService:
             self.client = None
             logger.warning("GEMINI_API_KEY not found in environment. Mock mode active.")
 
+    # Parse consultation transcript into validated prescription model with fuzzy drug matching
     async def extract_prescription(self, transcript: str) -> PrescriptionExtractionResponse:
         """
         Parses ambient consultation transcript into validated medical data contracts.
         """
+        # Return mock extraction when client is unconfigured or transcript is empty
         if not self.client or not transcript.strip():
             logger.info("Using deterministic synthetic fallback for prescription extraction.")
             return self._generate_mock_extraction(transcript)
 
         try:
+            # Query Gemini Flash model with structured schema output
             response = self.client.models.generate_content(
                 model="gemini-3.5-flash-lite",
                 contents=transcript,
@@ -62,18 +70,14 @@ class EvonClinicalService:
 
             parsed_data = PrescriptionExtractionResponse.model_validate_json(response.text)
             
-            # -----------------------------------------------------------------
-            # PR Change: Enforce Hinglish (Latin/Roman script) normalization on all
-            # extracted clinical entities (Patient Name, Diagnosis, Complaints, Advice).
-            # Avoids Devanagari rendering issues in PDF generation and WhatsApp previews.
-            # -----------------------------------------------------------------
+            # Normalize Devanagari script entities into Roman Hinglish
             parsed_data.patient_info.name = devanagari_to_hinglish(parsed_data.patient_info.name)
             parsed_data.clinical_findings.diagnosis = devanagari_to_hinglish(parsed_data.clinical_findings.diagnosis)
             parsed_data.patient_info.chief_complaints = [devanagari_to_hinglish(c) for c in parsed_data.patient_info.chief_complaints]
             if parsed_data.advice:
                 parsed_data.advice = devanagari_to_hinglish(parsed_data.advice)
             
-            # Post-process: Cross-reference extracted medications against local Indian formulary
+            # Cross-reference extracted medications against local Indian formulary
             for item in parsed_data.prescription:
                 match_res = drug_matcher.verify_medication(item.drug_name)
                 item.verified_match = match_res["matched_name"]
@@ -86,6 +90,7 @@ class EvonClinicalService:
             logger.error(f"Gemini clinical reasoning failed: {exc}. Reverting to fallback fixture.")
             return self._generate_mock_extraction(transcript)
 
+    # Provide deterministic synthetic consultation data for offline testing
     def _generate_mock_extraction(self, transcript: str) -> PrescriptionExtractionResponse:
         """
         Deterministic fallback adhering to the standard Ramesh OPD consultation fixture.
@@ -133,4 +138,5 @@ class EvonClinicalService:
             "advice": "Gargle with warm water twice daily"
         })
 
+# Global clinical extraction service singleton
 evon_service = EvonClinicalService()

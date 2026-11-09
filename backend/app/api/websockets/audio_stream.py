@@ -9,38 +9,47 @@ from starlette.websockets import WebSocketState
 from app.services.gnani.prisma_service import GnaniPrismaClient
 from app.services.gnani.evon_service import evon_service
 
+# Initialize WebSocket router logger
 logger = logging.getLogger("dhanvantari.websocket")
 
+# Router for WebSocket streaming connections
 router = APIRouter()
 
+# Manages state for an active real-time doctor consultation session
 class ConsultationSession:
+    # Initialize transcript buffer, audio counter, and STT client
     def __init__(self):
         self.transcript_buffer: List[str] = []
         self.audio_bytes_received: int = 0
         self.prisma_client = GnaniPrismaClient()
         self.listener_task: Optional[asyncio.Task] = None
 
+    # Append non-empty transcript segment to buffer
     def append_transcript(self, text: str) -> None:
         if text.strip():
             self.transcript_buffer.append(text.strip())
 
+    # Return full accumulated consultation transcript as single string
     def get_full_transcript(self) -> str:
         return " ".join(self.transcript_buffer)
 
+    # Clear transcript buffer and reset audio counters
     def reset(self) -> None:
         self.transcript_buffer.clear()
         self.audio_bytes_received = 0
 
 
+# Full-duplex WebSocket endpoint for audio streaming and transcription
 @router.websocket("/ws/consultation")
 async def consultation_audio_stream(websocket: WebSocket):
     await websocket.accept()
     session = ConsultationSession()
     logger.info("Doctor client connected to /ws/consultation")
 
-    # Connect to upstream Prisma STT service
+    # Connect to upstream Gnani Prisma STT service
     prisma_connected = await session.prisma_client.connect()
 
+    # Forward real-time speech tokens from Prisma STT downstream to frontend
     async def forward_stt_transcripts():
         """Relays interim speech tokens from Prisma STT downstream to LiveTranscript.jsx."""
         try:
@@ -60,13 +69,16 @@ async def consultation_audio_stream(websocket: WebSocket):
         except Exception as err:
             logger.error(f"Error in STT listener loop: {err}")
 
+    # Launch background task to listen for upstream STT transcripts
     if prisma_connected:
         session.listener_task = asyncio.create_task(forward_stt_transcripts())
 
     try:
+        # Main message loop receiving binary audio chunks and text commands
         while True:
             message = await websocket.receive()
 
+            # Handle WebSocket disconnect frame
             if message.get("type") == "websocket.disconnect":
                 logger.info("ASGI disconnect frame received.")
                 break
@@ -87,8 +99,8 @@ async def consultation_audio_stream(websocket: WebSocket):
 
                 action = payload.get("action", "").upper()
 
+                # Action: Handle direct transcript chunk injection
                 if action == "TRANSCRIPT_CHUNK":
-                    # Direct client text injection fallback
                     token = payload.get("text", "")
                     session.append_transcript(token)
                     await websocket.send_json({
@@ -99,10 +111,11 @@ async def consultation_audio_stream(websocket: WebSocket):
                         "is_final": True
                     })
 
+                # Action: Process transcript and extract structured prescription using Evon LLM
                 elif action in ["PROCESS", "PROCESS_EXTRACTION"]:
                     raw_text = payload.get("transcript") or session.get_full_transcript()
                     if not raw_text.strip():
-                        # Fallback to blueprint Ramesh OPD dialogue so offline testing never fails
+                        # Default fallback dialogue for testing when transcript is empty
                         raw_text = (
                             "Doctor: Namaste Ramesh ji, bataiye kya takleef hai? "
                             "Patient: Doctor sahab, do din se bahut tez bukhaar hai aur gale mein severe pain hai. "
@@ -110,18 +123,17 @@ async def consultation_audio_stream(websocket: WebSocket):
                             "Aur Amoxicillin 500mg subah-shaam 5 din tak lein. Garam paani se gargle kijiye."
                         )
 
+                    # Send status update indicating extraction in progress
                     await websocket.send_json({
                         "type": "STATUS",
                         "message": "Analyzing clinical dialogue with Evon LLM..."
                     })
 
+                    # Run clinical extraction
                     extracted_rx = await evon_service.extract_prescription(raw_text)
                     rx_payload = extracted_rx.model_dump()
 
-                    # -------------------------------------------------------------
-                    # PR Change: Emit dual events (PRESCRIPTION_EXTRACTED and STRUCTURED_CARDS)
-                    # to ensure backward-and-forward compatibility across all UI views.
-                    # -------------------------------------------------------------
+                    # Broadcast extracted prescription to frontend clients
                     await websocket.send_json({
                         "type": "PRESCRIPTION_EXTRACTED",
                         "data": rx_payload
@@ -131,6 +143,7 @@ async def consultation_audio_stream(websocket: WebSocket):
                         "payload": rx_payload
                     })
 
+                # Action: Reset current session buffer
                 elif action == "RESET":
                     session.reset()
                     await websocket.send_json({"type": "STATUS", "message": "Buffer reset."})
@@ -140,10 +153,11 @@ async def consultation_audio_stream(websocket: WebSocket):
     except Exception as exc:
         logger.error(f"Unexpected exception in consultation stream: {exc}")
     finally:
-        # Tear down upstream STT streaming session and background listener
+        # Tear down background listener task and close upstream STT connection
         if session.listener_task and not session.listener_task.done():
             session.listener_task.cancel()
         await session.prisma_client.close()
 
+        # Close client websocket connection safely if still open
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close()

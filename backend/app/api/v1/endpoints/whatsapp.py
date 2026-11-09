@@ -12,9 +12,11 @@ from app.services.history_service import history_repo
 
 logger = logging.getLogger("dhanvantari.whatsapp")
 
+# Router for WhatsApp message compilation and dispatch
 router = APIRouter(tags=["WhatsApp"])
 
 
+# Request payload containing recipient phone number and prescription data
 class WhatsAppSendRequest(BaseModel):
     phone_number: str = Field(
         ...,
@@ -24,6 +26,7 @@ class WhatsAppSendRequest(BaseModel):
     prescription_data: PrescriptionExtractionResponse
 
 
+# Endpoint to generate vernacular voice note, compile PDF, and construct WhatsApp wa.me link
 @router.post("/dispatch", summary="Dispatch prescription text, PDF, and vernacular audio to WhatsApp")
 async def dispatch_prescription(payload: WhatsAppSendRequest):
     """
@@ -32,13 +35,13 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
     3. Persists consultation to SQLite history repository for fast recent lookup.
     4. Builds WhatsApp text summary and universal wa.me deep-link URL.
     """
-    # 1. Synthesize regional audio note
+    # 1. Synthesize regional audio note in Hindi
     voice_note_result = await timbre_service.generate_voice_note(payload.prescription_data)
 
-    # 2. Compile standardized clinical PDF
+    # 2. Compile standardized clinical PDF prescription document
     pdf_filename = generate_prescription_pdf(payload.prescription_data)
 
-    # 3. Construct WhatsApp Message Body
+    # 3. Construct formatted clinical message body for WhatsApp
     p_info = payload.prescription_data.patient_info
     meds = payload.prescription_data.prescription
     clinical_findings = payload.prescription_data.clinical_findings
@@ -54,6 +57,7 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
         "📋 *Medication Schedule:*"
     ]
 
+    # Append each prescribed medicine and dosage schedule
     for idx, m in enumerate(meds, start=1):
         drug_label = getattr(m, "verified_match", None) or getattr(m, "drug_name", "Medicine")
         dosage = getattr(m, "dosage", "")
@@ -63,17 +67,19 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
         text_lines.append(f"{idx}. *{drug_label}* ({dosage})")
         text_lines.append(f"   Take: {freq} | {timing} | For {duration}")
 
+    # Append doctor dietary and lifestyle advice if present
     advice = getattr(payload.prescription_data, "advice", None)
     if advice:
         text_lines.append(f"\n💡 *Advice:* {advice}")
 
+    # Append vernacular voice note transcription
     script = voice_note_result.get("script", "")
     text_lines.append(f"\n🔊 *Awaaz mein nirdesh (Hindi):*\n_{script}_")
     text_lines.append("\n✅ *Dawai samay par lein. Shubhkaamnayein!*")
 
     full_text_message = "\n".join(text_lines)
 
-    # 4. Clean Phone Number and Encode wa.me Universal URL
+    # 4. Clean phone number and generate wa.me universal deep link
     clean_phone = "".join(filter(str.isdigit, payload.phone_number))
     encoded_text = urllib.parse.quote(full_text_message)
     wa_deep_link = f"https://wa.me/{clean_phone}?text={encoded_text}"
@@ -95,6 +101,7 @@ async def dispatch_prescription(payload: WhatsAppSendRequest):
     except Exception as exc:
         logger.error(f"Failed to record consultation to history repository: {exc}", exc_info=True)
 
+    # Return dispatch details including links to audio, PDF, and WhatsApp
     return {
         "status": "success",
         "recipient": clean_phone,

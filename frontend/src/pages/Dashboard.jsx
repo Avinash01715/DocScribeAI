@@ -2,22 +2,25 @@ import { Mic, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import DashboardLayout from '../components/layout/DashboardLayout'
 
+// Mock recent consultation activity records
 const recent = [
   { id: '001', status: 'Prescription sent via WhatsApp', time: '10:30 AM' },
   { id: '002', status: 'Pending review',                 time: '09:15 AM' },
 ]
 
+// Determine contextual greeting based on current local time of day
 function greeting() {
   const h = new Date().getHours()
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
 
+// OPD Home Dashboard page displaying greeting, quick actions, and consultation history
 export default function Dashboard() {
   const navigate = useNavigate()
 
   return (
     <DashboardLayout>
-      {/* Header */}
+      {/* Clinician greeting banner */}
       <div className="mb-5">
         <h1 className="text-xl font-bold text-slate-900 tracking-tight">
           {greeting()}, Doctor
@@ -27,7 +30,7 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Start Consultation Card */}
+      {/* Start New Consultation quick-action card */}
       <section className="rounded-2xl border border-teal-200/90 bg-white p-5 shadow-xs">
         <div className="flex items-center gap-2 text-teal-800 text-xs font-bold uppercase tracking-wider">
           <Mic className="h-4 w-4 text-teal-600" />
@@ -46,7 +49,7 @@ export default function Dashboard() {
         </button>
       </section>
 
-      {/* Recent Consultations */}
+      {/* Recent consultations timeline */}
       <div className="mt-6">
         <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
           Recent Consultations

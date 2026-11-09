@@ -17,28 +17,34 @@ from dotenv import load_dotenv
 import httpx
 from pydub import AudioSegment
 
+# Load environment configuration
 load_dotenv()
 
+# Initialize module logger
 logger = logging.getLogger("dhanvantari.timbre")
 
+# Upstream Gnani Timbre TTS endpoint and API key
 GNANI_TIMBRE_URL = os.getenv("GNANI_TIMBRE_URL", "https://api.vachana.ai/api/v1/tts/inference")
 GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
 
-# Upstream Gnani Timbre native clock (16 kHz, 16-bit Mono Linear PCM)
+# Default audio sampling rate
 DEFAULT_SAMPLE_RATE = 48000
 
-# Centralized storage configuration with defensive defaults
+# Cache directory for synthesized audio files
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
 AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# Service handling speech synthesis and MP3 transcoding for patient voice notes
 class TimbreTTSService:
+    # Initialize service credentials and local cache folder
     def __init__(self):
         self.api_url = GNANI_TIMBRE_URL
         self.api_key = GNANI_API_KEY
         self.cache_dir = AUDIO_CACHE_DIR
 
+    # Construct regional spoken Hindi dosage instructions from prescription data
     def construct_hindi_narrative(self, data: Any) -> str:
         """
         Transforms clinical entities into spoken regional Hindi dosage instructions.
@@ -86,6 +92,7 @@ class TimbreTTSService:
 
         return " ".join(phrases)
 
+    # Package raw 16-bit Mono Linear PCM bytes into standard RIFF WAV format
     def _package_pcm_to_wav(self, raw_pcm: bytes, sample_rate: int = DEFAULT_SAMPLE_RATE) -> bytes:
         """Packages raw 16-bit Mono Linear PCM into a compliant RIFF WAV container in memory."""
         wav_io = io.BytesIO()
@@ -96,6 +103,7 @@ class TimbreTTSService:
             wf.writeframes(raw_pcm)
         return wav_io.getvalue()
 
+    # Transcode WAV audio bytes to 64kbps mono MP3 format using pydub
     def _transcode_wav_to_mp3(self, wav_bytes: bytes, sample_rate: int = DEFAULT_SAMPLE_RATE) -> bytes:
         """
         Synchronous worker: Converts in-memory WAV bytes to an optimized MP3 stream (64kbps, mono).
@@ -111,12 +119,14 @@ class TimbreTTSService:
             logger.error(f"FFmpeg/Pydub MP3 transcoding failed: {exc}. Returning raw WAV bytes as fallback.")
             return wav_bytes
 
+    # Synchronously write binary payload to filesystem path
     def _write_bytes_to_disk(self, target_path: Path, payload: bytes) -> None:
         """Synchronous write routine to be called via asyncio.to_thread."""
         target_path.parent.mkdir(parents=True, exist_ok=True)
         with open(target_path, "wb") as f:
             f.write(payload)
 
+    # Send synthesis request to Timbre API across voice candidates and return WAV bytes
     async def synthesize_raw_audio(
         self,
         text: str,
@@ -128,6 +138,7 @@ class TimbreTTSService:
         Synthesizes text via Gnani Timbre TTS and returns (wav_bytes, sample_rate).
         Guarantees container encapsulation aligned to target_sample_rate.
         """
+        # Generate silent WAV fallback when API key is unconfigured
         if not self.api_key:
             logger.info(f"GNANI_API_KEY unconfigured. Generating synthetic silent buffer at {target_sample_rate}Hz.")
             silent_pcm = b"\x00" * (target_sample_rate * 2)
@@ -140,6 +151,7 @@ class TimbreTTSService:
 
         candidates = [voice] if voice else ["Avinash", "Lakshmi", "Shivani", "Kalpana", "Shubham", "Prakash", "Devansh"]
 
+        # Iterate over voice candidates until synthesis succeeds
         for v in candidates:
             if not v:
                 continue
@@ -192,6 +204,7 @@ class TimbreTTSService:
         silent_pcm = b"\x00" * (target_sample_rate * 2)
         return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
 
+    # Synthesize text, convert to MP3, and save to ephemeral disk cache
     async def synthesize_text(
         self,
         text: str,
@@ -210,21 +223,21 @@ class TimbreTTSService:
 
         output_filepath = self.cache_dir / file_id
 
-        # 1. Fetch raw audio buffer
+        # 1. Fetch raw synthesized audio buffer
         wav_bytes, detected_rate = await self.synthesize_raw_audio(
             text=text,
             language=language,
             target_sample_rate=DEFAULT_SAMPLE_RATE
         )
 
-        # 2. Non-blocking transcode to MP3
+        # 2. Non-blocking transcode to MP3 in worker thread
         mp3_bytes = await asyncio.to_thread(
             self._transcode_wav_to_mp3,
             wav_bytes,
             detected_rate
         )
 
-        # 3. Non-blocking thread write
+        # 3. Non-blocking write to disk cache in worker thread
         await asyncio.to_thread(self._write_bytes_to_disk, output_filepath, mp3_bytes)
 
         logger.info(f"Persisted WhatsApp-compliant MP3 asset: {file_id} ({len(mp3_bytes)} bytes)")
@@ -240,6 +253,7 @@ class TimbreTTSService:
             "synthesized": bool(self.api_key)
         }
 
+    # Generate complete regional voice note from clinical consultation object
     async def generate_voice_note(
         self,
         data: Any,
@@ -254,6 +268,7 @@ class TimbreTTSService:
 timbre_service = TimbreTTSService()
 
 
+# Adapter function to synthesize speech directly from orchestrator
 async def synthesize_timbre_audio(
     text: str,
     language: str = "hi-IN",

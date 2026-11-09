@@ -5,16 +5,21 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from rapidfuzz import process, fuzz
 
+# Initialize module logger
 logger = logging.getLogger("dhanvantari.drug_matcher")
 
+# Path to master drug formulary catalog
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PATH = BASE_DIR / "data" / "medicines.json"
 
+# Matches extracted medication names against standard pharmaceutical formulary using RapidFuzz
 class DrugMatcher:
+    # Initialize matcher and load master formulary
     def __init__(self, formulary_path: Path = DATA_PATH):
         self.formulary: List[str] = []
         self._load_formulary(formulary_path)
 
+    # Load list of medicines from JSON file or fall back to standard core formulary
     def _load_formulary(self, path: Path) -> None:
         if not path.exists():
             logger.warning(f"Formulary file not found at {path}. Using internal fallback dataset.")
@@ -42,6 +47,7 @@ class DrugMatcher:
             logger.error(f"Failed to load formulary from {path}: {exc}")
             self.formulary = []
 
+    # Fuzzy match input drug name against formulary and determine review requirement
     def verify_medication(self, query: str, threshold: float = 70.0) -> Dict[str, Any]:
         """
         Fuzzy matches extracted drug text against the formulary.
@@ -76,4 +82,5 @@ class DrugMatcher:
             "requires_review": True
         }
 
+# Global drug matcher singleton instance
 drug_matcher = DrugMatcher()

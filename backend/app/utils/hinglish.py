@@ -3,6 +3,7 @@ import re
 from indic_transliteration import sanscript
 from indic_transliteration.sanscript import transliterate
 
+# Replacement mappings to convert Sanskritized phonetic tokens to spoken Hinglish
 SCHWA_RULES = [
     ('|', '.'),
     ('meM', 'mein'),
@@ -32,6 +33,7 @@ SCHWA_RULES = [
     ('garama', 'garam'),
 ]
 
+# Transliterate Hindi Devanagari text into natural Roman-script Hinglish
 def devanagari_to_hinglish(text: str) -> str:
     """
     Converts Hindi Devanagari text to natural, spoken Hinglish (Latin Roman script).

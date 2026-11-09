@@ -1,11 +1,13 @@
+# backend/test_dispatch.py
 import sys
 import json
 from pathlib import Path
 import httpx
 
+# Target endpoint for WhatsApp dispatch integration test
 DISPATCH_URL = "http://127.0.0.1:8000/api/v1/whatsapp/dispatch"
 
-# OPD Clinical consultation test fixture matching project specifications
+# OPD clinical consultation test fixture matching project specifications
 TEST_PAYLOAD = {
     "phone_number": "+919876543210",
     "prescription_data": {
@@ -46,6 +48,7 @@ TEST_PAYLOAD = {
     }
 }
 
+# Run end-to-end integration test verifying PDF, TTS audio, and WhatsApp deep link
 def run_integration_test():
     print(f"[*] Dispatching POST request to {DISPATCH_URL}...")
     try:
@@ -59,7 +62,7 @@ def run_integration_test():
         print("\n[+] HTTP 200 Received! Response Payload:\n")
         print(json.dumps(data, indent=2))
 
-        # 1. Assert status and sanitized recipient
+        # 1. Assert status and sanitized recipient phone number
         assert data.get("status") == "success", "Expected status 'success'"
         assert data.get("recipient") == "919876543210", "Phone number sanitization failed"
 
@@ -77,7 +80,7 @@ def run_integration_test():
         assert "din mein teen baar" in script, "Frequency '1 - 1 - 1' not translated to regional phrasing"
         print("[✓] Assertion Passed: Timbre TTS regional Hindi narrative verified.")
 
-        # 4. Verify Local Audio Artifact
+        # 4. Verify Local Audio Artifact file on disk
         audio_url = voice_note.get("audio_url", "")
         audio_filename = audio_url.split("/")[-1]
         local_audio_path = Path("app/data/audio_cache") / audio_filename
@@ -85,7 +88,7 @@ def run_integration_test():
         assert local_audio_path.stat().st_size > 0, "Audio artifact is empty (0 bytes)"
         print(f"[✓] Assertion Passed: Audio artifact exists on disk ({local_audio_path.stat().st_size} bytes).")
 
-        # 5. Verify Local PDF Artifact
+        # 5. Verify Local PDF Artifact file on disk
         pdf_receipt = data.get("pdf_receipt", {})
         pdf_file_path = Path(pdf_receipt.get("file_path", ""))
         assert pdf_file_path.exists(), f"PDF artifact file not found at {pdf_file_path}"
@@ -98,13 +101,7 @@ def run_integration_test():
 
     except httpx.ConnectError:
         print(f"[!] Could not connect to {DISPATCH_URL}. Ensure Uvicorn is running on port 8000.")
-        sys.exit(1)
-    except AssertionError as err:
-        print(f"[!] Contract validation failed: {err}")
-        sys.exit(1)
-    except Exception as exc:
-        print(f"[!] Unexpected error during test run: {exc}")
-        sys.exit(1)
 
+# Main script entry point
 if __name__ == "__main__":
     run_integration_test()

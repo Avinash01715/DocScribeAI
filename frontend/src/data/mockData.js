@@ -1,6 +1,4 @@
-// Backend ke bina UI test karne ke liye nakli data
-
-// Day 3: nakli consultation (live transcript)
+// Mock consultation transcript lines for offline simulation and UI testing
 export const MOCK_TRANSCRIPT = [
   { speaker: 'Doctor', text: 'Namaste, boliye, aapko kya taklif hai?' },
   { speaker: 'Patient', text: 'Doctor sahab, teen din se bukhar hai aur gale mein dard bhi hai.' },
@@ -10,8 +8,7 @@ export const MOCK_TRANSCRIPT = [
   { speaker: 'Doctor', text: 'Main teen dawai likh raha hoon, paanch din tak leni hain.' },
 ]
 
-// Day 4: prescription ka shape = backend ka PrescriptionExtractionResponse (schemas/prescription.py).
-// Backend ke STRUCTURED_CARDS message ka "payload" bilkul aisa hi aayega.
+// Mock structured prescription payload matching the backend schema
 export const MOCK_PRESCRIPTION = {
   patient_info: {
     name: 'Ramesh',
@@ -21,19 +18,19 @@ export const MOCK_PRESCRIPTION = {
   prescription: [
     { drug_name: 'Paracetamol 650mg', dosage: '1 tablet', frequency: '1 - 1 - 1', timing: 'After meals', duration: '3 days', verified_match: 'Paracetamol 650mg', confidence_score: 100, requires_review: false },
     { drug_name: 'Amoxicillin 500mg', dosage: '1 capsule', frequency: '1 - 0 - 1', timing: 'After meals', duration: '5 days', verified_match: 'Amoxicillin 500mg', confidence_score: 100, requires_review: false },
-    // Ye jaan-boojhkar "gadbad" wali hai: review flag aur khali dosage UI mein test karne ke liye
+    // Intentional unverified entry with missing dosage to test clinician review alert
     { drug_name: 'Pantaprazole 40mg', dosage: '', frequency: '1 - 0 - 0', timing: 'Before food', duration: '5 days', verified_match: 'Pantoprazole 40mg', confidence_score: 88.5, requires_review: true },
   ],
   advice: 'Gargle with warm water twice daily',
 }
 
-// Day 5: backend ke /whatsapp/dispatch ka jawab (same shape). Day 6 mein asli jawab aayega
+// Mock WhatsApp dispatch response payload with audio note and PDF receipt links
 export const MOCK_DISPATCH = {
   status: 'success',
   recipient: '919876543210',
   whatsapp_deep_link: 'https://wa.me/919876543210',
   voice_note: {
-    audio_url: '/demo/instructions.wav', // public/demo mein rakhi 4 second ki test beep
+    audio_url: '/demo/instructions.wav', // Sample 4-second audio in public/demo
     script: 'Ramesh ji, Paracetamol 650mg din mein teen baar khana khane ke baad lein 3 days tak.',
     synthesized: false,
   },

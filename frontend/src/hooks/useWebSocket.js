@@ -18,11 +18,13 @@ import { MOCK_TRANSCRIPT, MOCK_PRESCRIPTION } from '../data/mockData'
  * 6. Action handlers: sendAudioChunk(buffer), triggerProcess(), resetSession().
  */
 
+// Default WebSocket configuration constants and timer thresholds
 const DEFAULT_WS_URL = 'ws://127.0.0.1:8000/ws/consultation'
 const HEARTBEAT_INTERVAL_MS = 20000 // 20s heartbeat keep-alive
 const INITIAL_RETRY_DELAY_MS = 1000 // 1s initial exponential backoff delay
 const MAX_RETRY_DELAY_MS = 16000 // 16s cap for exponential backoff
 
+// Custom hook managing bidirectional WebSocket streaming connection to backend
 export default function useWebSocket({
   url = DEFAULT_WS_URL,
   mock = false,
@@ -37,7 +39,7 @@ export default function useWebSocket({
   const [pipelineStatus, setPipelineStatus] = useState('')
   const [error, setError] = useState('')
 
-  // Backward-compatibility alias for legacy components expecting 'idle' | 'closed'
+  // Map state to backward-compatible legacy status string
   const legacyStatus =
     connectionStatus === 'CONNECTED'
       ? 'connected'
@@ -47,7 +49,7 @@ export default function useWebSocket({
           ? 'error'
           : 'closed'
 
-  // Refs for socket management and timers
+  // Mutable refs for socket lifecycle, queues, and timer management
   const wsRef = useRef(null)
   const queueRef = useRef([]) // Buffers audio chunks arriving before socket handshake completes
   const mockTimerRef = useRef(null)
@@ -64,6 +66,7 @@ export default function useWebSocket({
   }, [onMessage])
 
   // ---- 2. Socket Heartbeat Management ----
+  // Stop active heartbeat timer interval
   const stopHeartbeat = useCallback(() => {
     if (heartbeatTimerRef.current) {
       clearInterval(heartbeatTimerRef.current)
@@ -71,6 +74,7 @@ export default function useWebSocket({
     }
   }, [])
 
+  // Start periodic 20-second ping interval to prevent gateway socket timeouts
   const startHeartbeat = useCallback(() => {
     stopHeartbeat()
     heartbeatTimerRef.current = setInterval(() => {
@@ -83,6 +87,7 @@ export default function useWebSocket({
   }, [stopHeartbeat])
 
   // ---- 3. Disconnection & Cleanup ----
+  // Terminate connection, stop heartbeat, clear reconnect timers, and reset status
   const disconnect = useCallback(() => {
     explicitlyClosedRef.current = true
     stopHeartbeat()
@@ -104,6 +109,7 @@ export default function useWebSocket({
   }, [stopHeartbeat])
 
   // ---- 4. Bidirectional Connection Transport ----
+  // Connect to target WebSocket endpoint and attach message, open, error, and close listeners
   const connect = useCallback(
     (targetUrl = url) => {
       explicitlyClosedRef.current = false
@@ -132,6 +138,7 @@ export default function useWebSocket({
       ws.binaryType = 'arraybuffer'
       wsRef.current = ws
 
+      // Handle successful WebSocket connection handshake
       ws.onopen = () => {
         setConnectionStatus('CONNECTED')
         retryCountRef.current = 0 // Reset exponential backoff on successful handshake
@@ -144,6 +151,7 @@ export default function useWebSocket({
         }
       }
 
+      // Handle incoming message frames from backend
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data)
@@ -187,11 +195,13 @@ export default function useWebSocket({
         }
       }
 
+      // Handle socket errors
       ws.onerror = () => {
         setError('Server se connection nahi ban paya. Internet ya backend check karein.')
         setConnectionStatus('ERROR')
       }
 
+      // Handle socket close and trigger exponential backoff reconnect if needed
       ws.onclose = () => {
         stopHeartbeat()
         if (explicitlyClosedRef.current) {
@@ -223,7 +233,7 @@ export default function useWebSocket({
   }, [connect])
 
   // ---- 5. Binary Audio Dispatch Handler ----
-  // Dispatches raw binary audio frames (16kHz PCM Int16Array) via socket.send(buffer) without string overhead
+  // Dispatch raw binary 16kHz PCM audio buffer directly over socket without JSON overhead
   const sendAudioChunk = useCallback(
     (buffer) => {
       if (mock) return true
@@ -241,7 +251,7 @@ export default function useWebSocket({
     [mock]
   )
 
-  // Generic send helper (backward compatibility)
+  // Backward compatibility alias for sending data chunks
   const send = useCallback(
     (data) => {
       return sendAudioChunk(data)
@@ -250,7 +260,7 @@ export default function useWebSocket({
   )
 
   // ---- 6. Action Handlers ----
-  // Trigger clinical extraction reasoning on backend
+  // Send PROCESS action frame to backend to trigger LLM prescription extraction
   const triggerProcess = useCallback(
     (customTranscript) => {
       setPipelineStatus('Analyzing clinical dialogue with Evon LLM...')
@@ -271,7 +281,7 @@ export default function useWebSocket({
     [confirmedTranscript, mock]
   )
 
-  // Reset session: flushes clinical buffers and notifies backend
+  // Send RESET action frame to flush consultation buffer on backend and clear local state
   const resetSession = useCallback(() => {
     setInterimTranscript('')
     setConfirmedTranscript('')
@@ -284,7 +294,7 @@ export default function useWebSocket({
     }
   }, [])
 
-  // Auto cleanup on unmount
+  // Disconnect WebSocket connection when component unmounts
   useEffect(() => disconnect, [disconnect])
 
   return {

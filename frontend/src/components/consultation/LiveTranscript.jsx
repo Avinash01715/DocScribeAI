@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowDown, Cpu, Radio } from 'lucide-react'
  * LiveTranscript.jsx - Real-Time Ambient Speech Viewport (Light Clinical High-Contrast)
  */
 
+// Visual status badges and color tokens mapped to WebSocket connection states
 const STATUS_LABEL = {
   idle: { text: 'Ready', dot: 'bg-slate-400', badge: 'bg-slate-100 text-slate-800 border-slate-300' },
   connecting: { text: 'Connecting…', dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-900 border-amber-300' },
@@ -13,6 +14,7 @@ const STATUS_LABEL = {
   error: { text: 'Stream Error', dot: 'bg-rose-600', badge: 'bg-rose-50 text-rose-900 border-rose-300' },
 }
 
+// Live ambient speech transcript viewport with dual confirmed and interim text buffers
 export default function LiveTranscript({
   lines = [],
   interim = '',
@@ -28,6 +30,7 @@ export default function LiveTranscript({
 
   const badge = STATUS_LABEL[status] || STATUS_LABEL.idle
 
+  // Detect when user manually scrolls up to pause auto-scrolling
   const handleScroll = () => {
     const el = containerRef.current
     if (!el) return
@@ -36,24 +39,27 @@ export default function LiveTranscript({
     setAutoScrollLocked(isAtBottom)
   }
 
+  // Auto-scroll viewport to latest transcript line when locked to bottom
   useEffect(() => {
     if (autoScrollLocked) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }
   }, [lines, interim, autoScrollLocked])
 
+  // Re-enable automatic scrolling and snap viewport to bottom
   const resumeStickyScroll = () => {
     setAutoScrollLocked(true)
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }
 
+  // Separate finalized transcript sentences from unconfirmed interim speech tokens
   const confirmedLines = lines.filter((l) => l.is_final !== false)
   const interimLines = lines.filter((l) => l.is_final === false)
   const activeInterimText = interim || interimLines.map((l) => l.text).join(' ')
 
   return (
     <section className="relative flex h-88 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-      {/* Viewport Header */}
+      {/* Viewport header displaying status pill and latency indicator */}
       <div className="mb-2.5 flex items-center justify-between border-b border-slate-100 pb-2.5">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-bold text-slate-900 tracking-tight">Live Transcript</h2>
@@ -74,7 +80,7 @@ export default function LiveTranscript({
         </span>
       </div>
 
-      {/* Stream Error Banner */}
+      {/* Stream connection error banner */}
       {error && (
         <div
           role="alert"
@@ -84,7 +90,7 @@ export default function LiveTranscript({
         </div>
       )}
 
-      {/* Dual-Buffer Dialogue Viewport */}
+      {/* Scrollable conversation history viewport */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -100,7 +106,7 @@ export default function LiveTranscript({
           </div>
         ) : (
           <>
-            {/* Confirmed lines */}
+            {/* Confirmed consultation sentences */}
             {confirmedLines.map((l) => (
               <div key={l.id} className="rounded-xl bg-slate-50 border border-slate-200/80 p-2.5 space-y-0.5">
                 {l.speaker && (
@@ -114,7 +120,7 @@ export default function LiveTranscript({
               </div>
             ))}
 
-            {/* Interim tokens */}
+            {/* Interim streaming speech tokens */}
             {activeInterimText && (
               <div className="rounded-xl bg-teal-50 border border-teal-200 p-2.5 space-y-0.5">
                 <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wider">
@@ -131,7 +137,7 @@ export default function LiveTranscript({
         <div ref={bottomRef} />
       </div>
 
-      {/* Floating Scroll Resumption Pill */}
+      {/* Floating button to resume sticky scrolling when user scrolled up */}
       {!autoScrollLocked && (
         <button
           onClick={resumeStickyScroll}

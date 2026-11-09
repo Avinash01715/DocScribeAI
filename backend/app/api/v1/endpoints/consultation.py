@@ -1,11 +1,13 @@
-
+# backend/app/api/v1/endpoints/consultation.py
 from fastapi import APIRouter, HTTPException, status
 from app.schemas.consultation import ConsultationCompleteRequest, ConsultationCompleteResponse
 from app.services.orchestrator import orchestrator
 
+# Router definition for consultation endpoints
 router = APIRouter(prefix="/consultation", tags=["Consultation"])
 
 
+# Endpoint to complete consultation: builds PDF, synthesizes TTS audio, and creates WhatsApp link
 @router.post(
     "/complete",
     response_model=ConsultationCompleteResponse,

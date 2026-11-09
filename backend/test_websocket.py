@@ -3,8 +3,10 @@ import asyncio
 import json
 from websockets.asyncio.client import connect
 
+# WebSocket URI for consultation endpoint
 WS_URI = "ws://127.0.0.1:8000/ws/consultation"
 
+# Sample OPD dialogue used to test extraction via WebSocket
 SAMPLE_CONSULTATION = (
     "Doctor: Namaste Ramesh ji, bataiye kya takleef hai? "
     "Patient: Doctor sahab, do din se bahut tez bukhaar hai aur gale mein severe pain hai. "
@@ -12,6 +14,7 @@ SAMPLE_CONSULTATION = (
     "Aur Amoxicillin 500mg subah-shaam 5 din tak lein. Garam paani se gargle kijiye."
 )
 
+# Test full WebSocket lifecycle: audio streaming, token broadcast, and LLM extraction
 async def test_websocket_pipeline():
     print(f"[*] Connecting to WebSocket: {WS_URI}")
     
@@ -42,12 +45,12 @@ async def test_websocket_pipeline():
                 "transcript": SAMPLE_CONSULTATION
             }))
 
-            # Expect STATUS message first
+            # Expect STATUS message first indicating analysis has started
             status_msg = json.loads(await ws.recv())
             print(f"[+] Pipeline Status: {status_msg.get('message')}")
             assert status_msg["type"] == "STATUS"
 
-            # Expect PRESCRIPTION_EXTRACTED payload
+            # Expect PRESCRIPTION_EXTRACTED payload with structured entities
             extraction_msg = json.loads(await ws.recv())
             assert extraction_msg["type"] == "PRESCRIPTION_EXTRACTED", "Expected PRESCRIPTION_EXTRACTED event"
             
@@ -68,5 +71,6 @@ async def test_websocket_pipeline():
     except ConnectionRefusedError:
         print("[!] Connection failed: Ensure Uvicorn is running on port 8000.")
 
+# Main script entry point
 if __name__ == "__main__":
     asyncio.run(test_websocket_pipeline())

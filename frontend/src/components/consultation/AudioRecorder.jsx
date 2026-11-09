@@ -5,6 +5,7 @@ import { AlertTriangle, Mic, Pause, Play, RefreshCw, Send, Volume2 } from 'lucid
  * AudioRecorder.jsx – Acoustic Capture Pipeline (Minimalist Light Clinical)
  */
 
+// Downsample audio float buffer from browser sampling rate to 16kHz
 function downsampleTo16k(input, fromRate) {
   if (fromRate === 16000) return input
   const ratio = fromRate / 16000
@@ -16,6 +17,7 @@ function downsampleTo16k(input, fromRate) {
   return result
 }
 
+// Convert 32-bit float audio samples to 16-bit linear PCM binary buffer
 function floatTo16BitPCM(floatSamples) {
   const pcm = new Int16Array(floatSamples.length)
   for (let i = 0; i < floatSamples.length; i++) {
@@ -25,18 +27,22 @@ function floatTo16BitPCM(floatSamples) {
   return pcm.buffer
 }
 
+// Return human-readable message for browser microphone access errors
 function micErrorMessage(err) {
   switch (err?.name) {
     case 'NotAllowedError': return 'Microphone permission blocked.'
     case 'NotFoundError':   return 'No microphone found.'
+    case 'ReadableError':
     case 'NotReadableError':return 'Microphone is busy.'
     default:                return err?.message || 'Recording failed to initialize.'
   }
 }
 
+// Format duration seconds into MM:SS display string
 const formatTime = (s) =>
   `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
+// Waveform visualizer canvas configuration parameters
 const BAR_COUNT      = 48
 const BAR_GAP        = 2
 const COLOR_NORMAL   = '#0d9488'
@@ -44,13 +50,17 @@ const COLOR_HIGH     = '#e11d48'
 const COLOR_IDLE     = '#cbd5e1'
 const HIGH_THRESHOLD = 0.75
 
+// Real-time audio recording, downsampling, and waveform visualization component
 export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disabled = false, isProcessing = false }) {
+  // Local component states
   const [internalState, setInternalState]  = useState('IDLE')
   const [error, setError]                  = useState('')
   const [seconds, setSeconds]              = useState(0)
 
+  // Compute effective recording state considering external processing flag
   const recordingState = isProcessing ? 'PROCESSING' : internalState
 
+  // Audio Context and visualizer references
   const streamRef        = useRef(null)
   const audioContextRef  = useRef(null)
   const processorRef     = useRef(null)
@@ -59,14 +69,17 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
   const stateRef         = useRef('IDLE')
   const canvasRef        = useRef(null)
 
+  // Synchronize state ref with current recording state
   useEffect(() => { stateRef.current = recordingState }, [recordingState])
 
+  // Timer incrementing elapsed recording seconds every second
   useEffect(() => {
     if (recordingState !== 'RECORDING') return
     const id = setInterval(() => setSeconds((s) => s + 1), 1000)
     return () => clearInterval(id)
   }, [recordingState])
 
+  // Draw audio frequency bars onto canvas element
   const drawFrame = useCallback((analyser, dataArray) => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -76,12 +89,14 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
     const isRecording = stateRef.current === 'RECORDING'
     const barW = (W - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT
 
+    // Render resting bars when not recording
     if (!isRecording) {
       ctx.fillStyle = COLOR_IDLE
       for (let i = 0; i < BAR_COUNT; i++) ctx.fillRect(i * (barW + BAR_GAP), H - 3, barW, 3)
       return
     }
 
+    // Read frequency data and draw active dynamic waveform bars
     analyser.getByteFrequencyData(dataArray)
     const step = Math.floor(dataArray.length / BAR_COUNT)
     for (let i = 0; i < BAR_COUNT; i++) {
@@ -106,6 +121,7 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
     ctx.globalAlpha = 1
   }, [])
 
+  // Start continuous requestAnimationFrame loop for waveform visualization
   const startVisualizerLoop = useCallback((analyser) => {
     const dataArray = new Uint8Array(analyser.frequencyBinCount)
     const loop = () => {
@@ -117,6 +133,7 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
     animationFrameRef.current = requestAnimationFrame(loop)
   }, [drawFrame])
 
+  // Release audio stream tracks, close Web Audio context, and reset canvas
   const stopAudioPipeline = useCallback(() => {
     if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null }
     processorRef.current?.disconnect(); processorRef.current = null
@@ -133,8 +150,10 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
     }
   }, [])
 
+  // Teardown audio pipeline when component unmounts
   useEffect(() => () => stopAudioPipeline(), [stopAudioPipeline])
 
+  // Initialize canvas with idle resting bars on initial mount
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -143,6 +162,7 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
     for (let i = 0; i < BAR_COUNT; i++) ctx.fillRect(i * (barW + BAR_GAP), canvas.height - 3, barW, 3)
   }, [])
 
+  // Request microphone access, configure Web Audio nodes, and stream 16kHz PCM chunks
   const startConsultation = async () => {
     setError('')
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -174,18 +194,23 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
     } catch (err) { stopAudioPipeline(); setError(micErrorMessage(err)) }
   }
 
+  // Pause audio capture and suspend audio context
   const pauseRecording = () => { setInternalState('PAUSED'); audioContextRef.current?.state === 'running' && audioContextRef.current.suspend() }
+  // Resume audio capture and restart visualizer
   const resumeRecording = () => { setInternalState('RECORDING'); audioContextRef.current?.state === 'suspended' && audioContextRef.current.resume(); analyserRef.current && setTimeout(() => startVisualizerLoop(analyserRef.current), 0) }
+  // Finalize audio session and trigger transcription processing
   const processConsultation = () => { stopAudioPipeline(); setInternalState('IDLE'); onStop?.() }
+  // Reset audio session, elapsed timer, and parent state
   const resetSession = () => { stopAudioPipeline(); setInternalState('IDLE'); setSeconds(0); onReset?.() }
 
+  // Status flags for UI styling
   const isRecording    = recordingState === 'RECORDING'
   const isPaused       = recordingState === 'PAUSED'
   const isProcessActive= recordingState === 'PROCESSING'
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-      {/* Header */}
+      {/* Header with intake status and elapsed recording duration */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-bold text-slate-900 tracking-tight">Audio Intake</h2>
@@ -201,7 +226,7 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
         </span>
       </div>
 
-      {/* Waveform */}
+      {/* Live audio waveform canvas */}
       <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
         <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold">
           <span className="flex items-center gap-1 text-slate-600">
@@ -216,7 +241,7 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
         <canvas ref={canvasRef} width={800} height={48} className="block h-12 w-full rounded" aria-label="Waveform" />
       </div>
 
-      {/* Controls */}
+      {/* Primary recording controls: Start, Pause, Resume, Process, and Reset */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {recordingState === 'IDLE' && (
           <button
@@ -258,6 +283,7 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
         </button>
       </div>
 
+      {/* Microphone permission and device error banner */}
       {error && (
         <div role="alert" className="mt-2.5 flex gap-1.5 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs font-semibold text-rose-800">
           <AlertTriangle size={14} className="mt-0.5 shrink-0 text-rose-600" /> {error}
