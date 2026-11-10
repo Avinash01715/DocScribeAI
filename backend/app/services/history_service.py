@@ -2,6 +2,7 @@
 import sqlite3
 import json
 import asyncio
+from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -13,17 +14,22 @@ class PrescriptionHistoryRepository:
         self.db_path = db_path
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connection(self):
         conn = sqlite3.connect(str(self.db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
         # Enable Write-Ahead Logging (WAL) for concurrent read/write throughput
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS prescription_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +49,7 @@ class PrescriptionHistoryRepository:
             """)
 
     def _insert(self, record: Dict[str, Any]) -> int:
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO prescription_history (
                     patient_name, phone_number, diagnosis,
@@ -61,7 +67,7 @@ class PrescriptionHistoryRepository:
             return cursor.lastrowid
 
     def _get_recent(self, limit: int = 10) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             cursor = conn.execute("""
                 SELECT 
                     id, created_at, patient_name, phone_number,
@@ -74,7 +80,7 @@ class PrescriptionHistoryRepository:
             return [dict(row) for row in rows]
 
     def _get_by_id(self, history_id: int) -> Optional[Dict[str, Any]]:
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             cursor = conn.execute("""
                 SELECT id, created_at, full_payload_json 
                 FROM prescription_history 
