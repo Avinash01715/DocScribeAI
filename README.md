@@ -19,7 +19,7 @@
 
 | Link | Description |
 | :--- | :--- |
-| 🌐 **Live Web Application** | [Launch Doctor Dashboard](https://docscribeai.vercel.app) *(Production React App)* |
+| 🌐 **Live Web Application** | [Launch Doctor Dashboard](https://doc-scribe-ai-gamma.vercel.app/) *(Production React App)* |
 | 📹 **60-Second Video Demo** | [Watch on LinkedIn / X](https://linkedin.com) *(Tagged `#GreatIndianAIInternshipChallenge` & `#GnaniAI`)* |
 
 ---
