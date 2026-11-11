@@ -16,7 +16,7 @@ client = genai.Client(api_key=api_key)
 
 # Send lightweight test prompt to verify Gemini API connectivity
 response = client.models.generate_content(
-    model="gemini-3.5-flash",
+    model="gemini-3.5-flash-lite",
     contents="Confirm connectivity: Reply with 'Gemini API active'."
 )
 

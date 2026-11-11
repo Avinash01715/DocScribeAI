@@ -31,7 +31,10 @@ class ConsultationCompleteRequest(BaseModel):
     prescription: List[MedicationItem]
     advice: Optional[str] = Field(default="", description="General doctor advice")
     phone_number: str = Field(..., description="Patient mobile number (10 digits or E.164)")
-    language: str = Field(default="hi-IN", description="Target vernacular dialect for TTS")
+    language: Optional[str] = Field(
+        default="hi",
+        description="ISO 639-1 / BCP 47 language code for synthesized patient voice instructions"
+    )
 
 # Outbound response payload containing generated PDF, audio, and WhatsApp link
 class ConsultationCompleteResponse(BaseModel):
@@ -41,3 +44,4 @@ class ConsultationCompleteResponse(BaseModel):
     audio_url: Optional[str] = None
     whatsapp_deep_link: str
     narrative_text: str
+    language: str = "hi"

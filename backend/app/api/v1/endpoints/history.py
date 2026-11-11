@@ -1,9 +1,26 @@
 # backend/app/api/v1/endpoints/history.py
 from fastapi import APIRouter, HTTPException, Query, status
-from typing import List, Dict, Any
+from pydantic import BaseModel, ConfigDict
+from typing import List, Dict, Any, Optional, Union
 from app.services.history_service import history_repo
 
 router = APIRouter(prefix="/history", tags=["Prescription History"])
+
+
+class HistoryItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: Union[int, str]
+    patient_name: str
+    patient_phone: str
+    phone_number: Optional[str] = None
+    timestamp: str
+    created_at: Optional[str] = None
+    diagnosis: Optional[str] = None
+    medications_count: int = 0
+    audio_url: Optional[str] = None
+    pdf_url: Optional[str] = None
+    language: str = "hi"
 
 
 def _normalize_record(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -17,16 +34,20 @@ def _normalize_record(r: Dict[str, Any]) -> Dict[str, Any]:
 
     # Map timestamp
     if "timestamp" not in normalized and "created_at" in normalized:
-        normalized["timestamp"] = normalized["created_at"]
+        normalized["timestamp"] = str(normalized["created_at"])
     elif "created_at" not in normalized and "timestamp" in normalized:
-        normalized["created_at"] = normalized["timestamp"]
+        normalized["created_at"] = str(normalized["timestamp"])
 
+    if "timestamp" in normalized and normalized["timestamp"] is not None:
+        normalized["timestamp"] = str(normalized["timestamp"])
+
+    normalized["language"] = normalized.get("language") or "hi"
     return normalized
 
 
-@router.get("", summary="Fetch recent prescription records")
-@router.get("/", summary="Fetch recent prescription records")
-@router.get("/recent", summary="Fetch last prescription summaries")
+@router.get("", response_model=List[HistoryItem], summary="Fetch recent prescription records")
+@router.get("/", response_model=List[HistoryItem], summary="Fetch recent prescription records")
+@router.get("/recent", response_model=List[HistoryItem], summary="Fetch last prescription summaries")
 async def get_recent_prescriptions(
     limit: int = Query(default=20, ge=1, le=100, description="Max prescription records to retrieve")
 ) -> List[Dict[str, Any]]:
@@ -42,4 +63,5 @@ async def get_prescription_detail(history_id: int):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prescription record #{history_id} not found."
         )
+    record["language"] = record.get("language") or "hi"
     return record

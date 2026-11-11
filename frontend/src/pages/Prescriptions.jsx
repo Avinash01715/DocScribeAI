@@ -30,6 +30,7 @@ import {
   resolveAssetUrl,
   sanitizePhoneE164,
 } from '../services/historyApi'
+import { getLanguageMeta } from '../utils/languages'
 
 /**
  * Formats ISO timestamps to standard localized clinical date/time strings
@@ -424,6 +425,7 @@ export default function Prescriptions() {
                     const waShareUrl = buildWhatsAppShareUrl(item)
                     const phoneRaw = item.patient_phone || item.phone_number || ''
                     const isCopied = copiedPhoneId === item.id
+                    const langMeta = getLanguageMeta(item.language)
 
                     return (
                       <tr
@@ -448,8 +450,16 @@ export default function Prescriptions() {
                               <User size={15} />
                             </div>
                             <div>
-                              <div className="font-bold text-slate-900">
-                                {item.patient_name || 'Patient'}
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-slate-900">
+                                  {item.patient_name || 'Patient'}
+                                </span>
+                                <span
+                                  title={`Voice Language: ${langMeta.label}`}
+                                  className="px-2 py-0.5 text-xs font-semibold rounded-full bg-teal-50 text-teal-700 border border-teal-200"
+                                >
+                                  {langMeta.badge}
+                                </span>
                               </div>
                               {phoneRaw && (
                                 <button
@@ -589,6 +599,7 @@ export default function Prescriptions() {
                 const waShareUrl = buildWhatsAppShareUrl(item)
                 const phoneRaw = item.patient_phone || item.phone_number || ''
                 const isCopied = copiedPhoneId === item.id
+                const langMeta = getLanguageMeta(item.language)
 
                 return (
                   <div
@@ -602,9 +613,17 @@ export default function Prescriptions() {
                           <User size={16} />
                         </div>
                         <div>
-                          <h4 className="text-sm font-bold text-slate-900 leading-tight">
-                            {item.patient_name || 'Patient'}
-                          </h4>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="text-sm font-bold text-slate-900 leading-tight">
+                              {item.patient_name || 'Patient'}
+                            </h4>
+                            <span
+                              title={`Voice Language: ${langMeta.label}`}
+                              className="px-2 py-0.5 text-xs font-semibold rounded-full bg-teal-50 text-teal-700 border border-teal-200"
+                            >
+                              {langMeta.badge}
+                            </span>
+                          </div>
                           {phoneRaw && (
                             <button
                               onClick={() => handleCopyPhone(item.id, phoneRaw)}
@@ -667,7 +686,7 @@ export default function Prescriptions() {
                           </button>
                           <div>
                             <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
-                              <Volume2 size={12} className="text-teal-600" /> Hindi Voice Note
+                              <Volume2 size={12} className="text-teal-600" /> {langMeta.label} Voice Note
                             </span>
                             <span className="text-[10px] font-mono tabular-nums text-slate-500">
                               {isCurrentAudio

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Languages, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import AudioRecorder from '../components/consultation/AudioRecorder'
@@ -8,6 +8,7 @@ import PrescriptionReview from '../components/prescription/PrescriptionReview'
 import WhatsAppModal, { WhatsAppIcon } from '../components/patient/WhatsAppModal'
 import useWebSocket from '../hooks/useWebSocket'
 import { withUids } from '../utils/prescription'
+import { LANGUAGE_OPTIONS, getLanguageMeta } from '../utils/languages'
 
 /**
  * Consultation.jsx - Real-Time Ambient Clinical Console (Minimalist Light Clinical)
@@ -47,6 +48,7 @@ export default function Consultation() {
   const [prescription, setPrescription] = useState(null)
   const [approved, setApproved] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [selectedLanguage, setSelectedLanguage] = useState('hi')
   const timerRef = useRef(null)
 
   // Handle incoming WebSocket messages (transcripts, reasoning status, and extracted prescriptions)
@@ -104,6 +106,7 @@ export default function Consultation() {
       body: JSON.stringify({
         phone_number: cleanPhone,
         prescription_data: prescription,
+        language: selectedLanguage || 'hi',
       }),
     })
 
@@ -154,15 +157,52 @@ export default function Consultation() {
     ws.resetSession()
   }
 
+  const activeLangMeta = getLanguageMeta(selectedLanguage)
+
   return (
     <DashboardLayout>
-      {/* Return button navigating back to Dashboard */}
-      <button
-        onClick={() => navigate('/')}
-        className="mb-4 inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-950 transition"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back
-      </button>
+      {/* Top Action Header: Back navigation + Patient Voice Note Language Toggle */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <button
+          onClick={() => navigate('/')}
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-950 transition self-start"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back
+        </button>
+
+        {/* Patient Multilingual Audio Translation Toggle */}
+        <div
+          role="group"
+          aria-label="Patient Voice Audio Language"
+          className="flex flex-wrap items-center gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xs"
+        >
+          <span className="flex items-center gap-1 px-2 text-[11px] font-bold text-slate-500">
+            <Languages size={13} className="text-teal-600" />
+            <span className="hidden sm:inline">Voice Note:</span>
+          </span>
+          {LANGUAGE_OPTIONS.map((opt) => {
+            const isSelected = selectedLanguage === opt.code
+            return (
+              <button
+                key={opt.code}
+                type="button"
+                disabled={recording || processing}
+                onClick={() => setSelectedLanguage(opt.code)}
+                aria-pressed={isSelected}
+                title={`Synthesize voice instructions in ${opt.label} (${opt.badge})`}
+                className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-xs font-semibold transition ${
+                  isSelected
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <span>{opt.flag}</span>
+                <span>{opt.nativeLabel}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
 
       <div className="space-y-4">
         {/* Top Grid: Audio Ingestion & Live Ambient Transcript */}
@@ -215,6 +255,9 @@ export default function Consultation() {
               >
                 <WhatsAppIcon className="h-4 w-4 fill-white" />
                 <span>Send via WhatsApp</span>
+                <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold tracking-wide">
+                  {activeLangMeta.flag} {activeLangMeta.badge}
+                </span>
               </button>
               {!approved && (
                 <p className="text-center text-[11px] font-semibold text-slate-500">

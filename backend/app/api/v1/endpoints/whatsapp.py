@@ -1,13 +1,18 @@
 # backend/app/api/v1/endpoints/whatsapp.py
 import os
 from pathlib import Path
+from typing import Optional
 import urllib.parse
 import logging
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from app.schemas.prescription import PrescriptionExtractionResponse
-from app.services.gnani.timbre_service import timbre_service
+from app.services.gnani.timbre_service import (
+    SUPPORTED_LANGUAGES,
+    normalize_language_key,
+    timbre_service,
+)
 from app.utils.pdf_generator import generate_prescription_pdf
 from app.services.history_service import history_repo
 
@@ -17,7 +22,7 @@ logger = logging.getLogger("dhanvantari.whatsapp")
 router = APIRouter(tags=["WhatsApp"])
 
 
-# Request payload containing recipient phone number and prescription data
+# Request payload containing recipient phone number, prescription data, and optional voice language
 class WhatsAppSendRequest(BaseModel):
     phone_number: str = Field(
         ...,
@@ -25,6 +30,10 @@ class WhatsAppSendRequest(BaseModel):
         description="E.164 formatted recipient phone number without special characters"
     )
     prescription_data: PrescriptionExtractionResponse
+    language: Optional[str] = Field(
+        default="hi",
+        description="ISO 639-1 / BCP 47 language code for synthesized patient voice instructions"
+    )
 
 
 def get_server_base_url(request: Request) -> str:
@@ -46,10 +55,29 @@ async def dispatch_prescription(payload: WhatsAppSendRequest, request: Request):
     3. Persists consultation to SQLite history repository for fast recent lookup.
     4. Builds WhatsApp text summary and universal wa.me deep-link URL with direct audio & PDF links.
     """
-    # 1. Synthesize regional audio note in Hindi
-    voice_note_result = await timbre_service.generate_voice_note(payload.prescription_data)
+    # Normalize target language code (defaults cleanly to 'hi')
+    requested_lang = normalize_language_key(payload.language)
 
-    # 2. Compile standardized clinical PDF prescription document
+    # 1. Synthesize regional audio note defensively (never aborts PDF generation)
+    try:
+        voice_note_result = await timbre_service.generate_voice_note(
+            payload.prescription_data,
+            language=requested_lang,
+        )
+    except Exception as exc:
+        logger.warning(f"Vernacular TTS synthesis failed for '{requested_lang}': {exc}")
+        voice_note_result = {
+            "audio_url": None,
+            "script": timbre_service.construct_hindi_narrative(payload.prescription_data),
+            "synthesized": False,
+            "format": "mp3",
+            "language": "hi",
+        }
+
+    resolved_lang = normalize_language_key(voice_note_result.get("language") or requested_lang)
+    lang_label = SUPPORTED_LANGUAGES.get(resolved_lang, {}).get("label", "Hindi")
+
+    # 2. Compile standardized clinical PDF prescription document (strictly un-translated English EMR)
     pdf_filename = generate_prescription_pdf(payload.prescription_data)
     clean_pdf_name = Path(pdf_filename).name
 
@@ -98,7 +126,7 @@ async def dispatch_prescription(payload: WhatsAppSendRequest, request: Request):
     # Append vernacular voice note transcription
     script = voice_note_result.get("script", "")
     if script:
-        text_lines.append(f"\n🔊 *Awaaz mein nirdesh (Hindi):*\n_{script}_")
+        text_lines.append(f"\n🔊 *Awaaz mein nirdesh ({lang_label}):*\n_{script}_")
 
     # Embed direct clickable links for Audio & PDF into WhatsApp message body
     if full_audio_url:
@@ -125,19 +153,22 @@ async def dispatch_prescription(payload: WhatsAppSendRequest, request: Request):
             "medications_count": len(meds),
             "audio_url": full_audio_url,
             "pdf_url": full_pdf_url,
+            "language": resolved_lang,
             "full_payload_json": payload.prescription_data.model_dump()
         })
     except Exception as exc:
         logger.error(f"Failed to record consultation to history repository: {exc}", exc_info=True)
 
-    # Return dispatch details including links to audio, PDF, and WhatsApp
+    # Return dispatch details including links to audio, PDF, language, and WhatsApp
     return {
         "status": "success",
         "recipient": clean_phone,
+        "language": resolved_lang,
         "whatsapp_deep_link": wa_deep_link,
         "voice_note": {
             "audio_url": full_audio_url,
             "script": voice_note_result.get("script"),
+            "language": resolved_lang,
             "synthesized": voice_note_result.get("synthesized", False),
             "format": voice_note_result.get("format", "mp3")
         },
