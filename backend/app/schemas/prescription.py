@@ -31,6 +31,14 @@ class MedicationItem(BaseModel):
         default=False, 
         description="Flags entries falling below matching thresholds for physician verification"
     )
+    safety_status: str = Field(
+        default="Verified Safe",
+        description="Deterministic clinical safety status flag"
+    )
+    interaction_alerts: List[str] = Field(
+        default_factory=list,
+        description="Clinical safety and drug-drug interaction alerts"
+    )
 
     # Normalize colloquial Hinglish/English phrases into standard OPD matrix notation (e.g. 1 - 1 - 1)
     @field_validator("frequency", mode="before")
