@@ -1,6 +1,6 @@
 import { CheckCircle2, FileText, Plus, ShieldCheck, Thermometer, User } from 'lucide-react'
 import MedicineCard from './MedicineCard'
-import { missingFields } from '../../utils/prescription'
+import { missingFields, evaluateClinicalSafety } from '../../utils/prescription'
 
 /**
  * PrescriptionReview.jsx - Structured Clinical Summary & Formulary Editor (Minimalist Light Clinical)
@@ -26,48 +26,55 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
   const setPatient = (patch) =>
     onChange({ ...data, patient_info: { ...data.patient_info, ...patch } })
 
-  // Update specific property on an individual medication item
-  const setMedicine = (uid, key, value) =>
+  // Update specific property on an individual medication item and re-evaluate safety
+  const setMedicine = (uid, key, value) => {
+    const updated = data.prescription.map((m) => {
+      if (m.uid !== uid) return m
+      const next = { ...m, [key]: value }
+      if (key === 'drug_name') {
+        next.verified_match = null
+        next.confidence_score = 100
+      }
+      return next
+    })
     onChange({
       ...data,
-      prescription: data.prescription.map((m) => {
-        if (m.uid !== uid) return m
-        const next = { ...m, [key]: value }
-        if (key === 'drug_name') {
-          next.verified_match = null
-          next.requires_review = false
-          next.confidence_score = 100
-        }
-        return next
-      }),
+      prescription: evaluateClinicalSafety(updated),
     })
+  }
 
-  // Remove a medication entry by its unique identifier
-  const removeMedicine = (uid) =>
+  // Remove a medication entry by its unique identifier and re-evaluate safety
+  const removeMedicine = (uid) => {
+    const filtered = data.prescription.filter((m) => m.uid !== uid)
     onChange({
       ...data,
-      prescription: data.prescription.filter((m) => m.uid !== uid),
+      prescription: evaluateClinicalSafety(filtered),
     })
+  }
 
   // Add a blank medication entry with default dosage and schedule
-  const addMedicine = () =>
+  const addMedicine = () => {
+    const nextList = [
+      ...data.prescription,
+      {
+        uid: `m${Date.now()}`,
+        drug_name: '',
+        dosage: '',
+        frequency: '1 - 0 - 1',
+        timing: 'After meals',
+        duration: '3 days',
+        verified_match: null,
+        confidence_score: 100,
+        requires_review: false,
+        safety_status: 'Verified Safe',
+        interaction_alerts: [],
+      },
+    ]
     onChange({
       ...data,
-      prescription: [
-        ...data.prescription,
-        {
-          uid: `m${Date.now()}`,
-          drug_name: '',
-          dosage: '',
-          frequency: '1 - 0 - 1',
-          timing: 'After meals',
-          duration: '3 days',
-          verified_match: null,
-          confidence_score: 100,
-          requires_review: false,
-        },
-      ],
+      prescription: evaluateClinicalSafety(nextList),
     })
+  }
 
   // Validation metrics to control doctor approval eligibility
   const missing = data.prescription.flatMap((m) => missingFields(m))

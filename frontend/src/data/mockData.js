@@ -16,10 +16,9 @@ export const MOCK_PRESCRIPTION = {
   },
   clinical_findings: { diagnosis: 'Acute Throat Infection' },
   prescription: [
-    { drug_name: 'Paracetamol 650mg', dosage: '1 tablet', frequency: '1 - 1 - 1', timing: 'After meals', duration: '3 days', verified_match: 'Paracetamol 650mg', confidence_score: 100, requires_review: false },
-    { drug_name: 'Amoxicillin 500mg', dosage: '1 capsule', frequency: '1 - 0 - 1', timing: 'After meals', duration: '5 days', verified_match: 'Amoxicillin 500mg', confidence_score: 100, requires_review: false },
-    // Intentional unverified entry with missing dosage to test clinician review alert
-    { drug_name: 'Pantaprazole 40mg', dosage: '', frequency: '1 - 0 - 0', timing: 'Before food', duration: '5 days', verified_match: 'Pantoprazole 40mg', confidence_score: 88.5, requires_review: true },
+    { drug_name: 'Paracetamol 650mg', dosage: '1 tablet', frequency: '1 - 1 - 1', timing: 'After meals', duration: '3 days', verified_match: 'Paracetamol 650mg', confidence_score: 100, requires_review: false, safety_status: 'Verified Safe', interaction_alerts: [] },
+    { drug_name: 'Aspirin 75mg', dosage: '1 tablet', frequency: '1 - 0 - 0', timing: 'After meals', duration: '5 days', verified_match: 'Aspirin 75mg', confidence_score: 100, requires_review: true, safety_status: 'DDI_ALERT', interaction_alerts: ['DDI Alert: Contraindicated with Ibuprofen 400mg (Severe risk of gastrointestinal ulceration/bleeding.)'] },
+    { drug_name: 'Ibuprofen 400mg', dosage: '1 tablet', frequency: '1 - 0 - 1', timing: 'After meals', duration: '3 days', verified_match: 'Ibuprofen 400mg', confidence_score: 100, requires_review: true, safety_status: 'DDI_ALERT', interaction_alerts: ['DDI Alert: Contraindicated with Aspirin 75mg (Severe risk of gastrointestinal ulceration/bleeding.)'] },
   ],
   advice: 'Gargle with warm water twice daily',
 }
