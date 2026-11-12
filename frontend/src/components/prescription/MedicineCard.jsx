@@ -32,17 +32,20 @@ function reviewReason(med) {
 export default function MedicineCard({ med, onChange, onRemove }) {
   const missing = missingFields(med)
   const reason = reviewReason(med)
+  const hasAlerts = Array.isArray(med.interaction_alerts) && med.interaction_alerts.length > 0
   const isHighConfidence =
-    !med.requires_review && (med.confidence_score ?? 100) >= 75
+    !med.requires_review && (med.confidence_score ?? 100) >= 75 && !hasAlerts
   const isReviewRequired =
-    med.requires_review || (med.confidence_score ?? 100) < 75
+    med.requires_review || (med.confidence_score ?? 100) < 75 || hasAlerts
 
   const freqSlots = parseFrequencySlots(med.frequency)
 
   return (
     <div
       className={`rounded-2xl border p-3.5 transition-colors ${
-        isReviewRequired
+        hasAlerts
+          ? 'border-rose-300 bg-rose-50/40'
+          : isReviewRequired
           ? 'border-amber-300 bg-amber-50/40'
           : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
       }`}
@@ -58,6 +61,13 @@ export default function MedicineCard({ med, onChange, onRemove }) {
 
         {/* Verification status badges */}
         <div className="flex items-center gap-1.5">
+          {hasAlerts && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-100/90 px-2 py-0.5 text-[11px] font-bold text-rose-900">
+              <AlertTriangle size={12} className="text-rose-600" />
+              Safety Alert
+            </span>
+          )}
+
           {isHighConfidence && (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
               <CheckCircle2 size={12} className="text-emerald-600" />
@@ -65,7 +75,7 @@ export default function MedicineCard({ med, onChange, onRemove }) {
             </span>
           )}
 
-          {isReviewRequired && (
+          {!hasAlerts && isReviewRequired && (
             <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100/70 px-2 py-0.5 text-[11px] font-bold text-amber-900">
               <AlertTriangle size={12} className="text-amber-700" />
               Review ({Math.round(med.confidence_score || 0)}%)
@@ -73,6 +83,21 @@ export default function MedicineCard({ med, onChange, onRemove }) {
           )}
         </div>
       </div>
+
+      {/* Prominent Clinical Safety and DDI Warning Badge */}
+      {hasAlerts && (
+        <div className="mb-2.5 space-y-1.5">
+          {med.interaction_alerts.map((alert, idx) => (
+            <div
+              key={idx}
+              className="flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-100/80 px-2.5 py-1.5 text-xs font-bold text-rose-900"
+            >
+              <span className="shrink-0 text-xs">🔴</span>
+              <span>{alert}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Editable input fields for dosage, frequency, timing, and duration */}
       <div className="grid gap-2 sm:grid-cols-2">

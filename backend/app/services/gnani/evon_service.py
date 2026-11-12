@@ -85,6 +85,9 @@ class EvonClinicalService:
                 item.confidence_score = match_res["confidence_score"]
                 item.requires_review = match_res["requires_review"]
 
+            # Evaluate clinical safety and pairwise DDI rules
+            drug_matcher.validate_prescription_safety(parsed_data.prescription)
+
             return parsed_data
 
         except Exception as exc:
@@ -179,6 +182,9 @@ class EvonClinicalService:
                 "confidence_score": match_res["confidence_score"],
                 "requires_review": match_res["requires_review"]
             })
+
+        # Evaluate clinical safety and pairwise DDI rules
+        drug_matcher.validate_prescription_safety(verified_prescription)
 
         return PrescriptionExtractionResponse.model_validate({
             "patient_info": {
