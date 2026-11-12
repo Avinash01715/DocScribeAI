@@ -186,7 +186,21 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
       processorRef.current = processor
       processor.onaudioprocess = (e) => {
         if (stateRef.current !== 'RECORDING') return
-        onChunk?.(floatTo16BitPCM(downsampleTo16k(e.inputBuffer.getChannelData(0), audioContext.sampleRate)))
+        const inputData = e.inputBuffer.getChannelData(0)
+
+        // Calculate average signal energy (RMS amplitude)
+        let sum = 0
+        for (let i = 0; i < inputData.length; i++) {
+          sum += inputData[i] * inputData[i]
+        }
+        const rms = Math.sqrt(sum / inputData.length)
+
+        // Edge VAD: If RMS is below ambient background threshold (0.012), drop silence
+        if (rms < 0.012) {
+          return // Skip WebSocket send (Silence suppressed at edge)
+        }
+
+        onChunk?.(floatTo16BitPCM(downsampleTo16k(inputData, audioContext.sampleRate)))
       }
       source.connect(processor); processor.connect(audioContext.destination)
       setSeconds(0); setInternalState('RECORDING')

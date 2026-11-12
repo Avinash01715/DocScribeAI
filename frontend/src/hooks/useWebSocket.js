@@ -62,6 +62,7 @@ export default function useWebSocket({
   // Mutable refs for socket lifecycle, queues, and timer management
   const wsRef = useRef(null)
   const queueRef = useRef([]) // Buffers audio chunks arriving before socket handshake completes
+  const sequenceNumberRef = useRef(0) // Monotonic sequence ID counter for audio packets
   const mockTimerRef = useRef(null)
   const heartbeatTimerRef = useRef(null)
   const reconnectTimerRef = useRef(null)
@@ -123,6 +124,7 @@ export default function useWebSocket({
   const connect = useCallback(
     (targetUrl = url) => {
       explicitlyClosedRef.current = false
+      sequenceNumberRef.current = 0
       setError('')
       setConnectionStatus('CONNECTING')
 
@@ -247,13 +249,21 @@ export default function useWebSocket({
   const sendAudioChunk = useCallback(
     (buffer) => {
       if (mock) return true
+
+      // Tag chunk with monotonic sequence counter (0, 1, 2...)
+      const seq = sequenceNumberRef.current++
+      const rawBytes = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer.buffer || buffer)
+      const packet = new Uint8Array(4 + rawBytes.byteLength)
+      const view = new DataView(packet.buffer)
+      view.setUint32(0, seq, false) // 4-byte Big-Endian unsigned integer
+      packet.set(rawBytes, 4)
       const ws = wsRef.current
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(buffer)
+        ws.send(packet.buffer)
         return true
       }
       if (ws && ws.readyState === WebSocket.CONNECTING) {
-        queueRef.current.push(buffer)
+        queueRef.current.push(packet.buffer)
         return true
       }
       return false
@@ -293,6 +303,7 @@ export default function useWebSocket({
 
   // Send RESET action frame to flush consultation buffer on backend and clear local state
   const resetSession = useCallback(() => {
+    sequenceNumberRef.current = 0
     setInterimTranscript('')
     setConfirmedTranscript('')
     setExtractedPrescription(null)

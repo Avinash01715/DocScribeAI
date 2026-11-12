@@ -2,7 +2,10 @@
 import json
 import asyncio
 import logging
-from typing import List, Optional
+import heapq
+import time
+import struct
+from typing import List, Optional, Tuple
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
@@ -15,14 +18,86 @@ logger = logging.getLogger("dhanvantari.websocket")
 # Router for WebSocket streaming connections
 router = APIRouter()
 
+
+class AudioJitterBuffer:
+    """
+    Sliding Window Jitter Buffer using Python's heapq priority queue.
+    Re-orders out-of-order audio chunks based on monotonic sequence IDs and holds
+    chunks for up to max_wait_ms (80ms) to allow late-arriving packets to re-sequence.
+    """
+    def __init__(self, max_wait_ms: float = 80.0):
+        self.max_wait_seconds = max_wait_ms / 1000.0
+        # Priority queue entries: (sequence_number, arrival_timestamp, audio_bytes)
+        self.heap: List[Tuple[int, float, bytes]] = []
+        self.expected_seq: int = 0
+
+    def push(self, seq_num: int, audio: bytes) -> None:
+        """Push an incoming audio chunk with its sequence number and monotonic timestamp."""
+        heapq.heappush(self.heap, (seq_num, time.monotonic(), audio))
+
+    def pop_ready(self) -> List[bytes]:
+        """
+        Pop and return chunks that are:
+        1. In exact sequential order (seq_num == expected_seq)
+        2. Past the 80ms jitter wait threshold (skip missing chunk to prevent audio stall)
+        """
+        ready_chunks: List[bytes] = []
+        now = time.monotonic()
+
+        while self.heap:
+            seq_num, arrival_time, audio = self.heap[0]
+
+            # In-order packet ready for consumption
+            if seq_num == self.expected_seq:
+                heapq.heappop(self.heap)
+                ready_chunks.append(audio)
+                self.expected_seq += 1
+
+            # Duplicate or stale packet arrived after window advanced
+            elif seq_num < self.expected_seq:
+                heapq.heappop(self.heap)
+
+            # Out-of-order future packet (seq_num > expected_seq)
+            else:
+                # If packet has waited past the 80ms sliding window threshold, skip ahead
+                if now - arrival_time >= self.max_wait_seconds:
+                    logger.warning(
+                        f"Jitter window expired ({self.max_wait_seconds * 1000:.0f}ms). "
+                        f"Skipping missing chunk(s) {self.expected_seq}..{seq_num - 1}."
+                    )
+                    heapq.heappop(self.heap)
+                    ready_chunks.append(audio)
+                    self.expected_seq = seq_num + 1
+                else:
+                    # Still waiting within 80ms window for missing chunk
+                    break
+
+        return ready_chunks
+
+    def flush(self) -> List[bytes]:
+        """Drain all remaining chunks in sequence order upon stream completion."""
+        chunks: List[bytes] = []
+        while self.heap:
+            _, _, audio = heapq.heappop(self.heap)
+            chunks.append(audio)
+        return chunks
+
+    def reset(self) -> None:
+        """Reset sequence tracker and clear buffer."""
+        self.heap.clear()
+        self.expected_seq = 0
+
+
 # Manages state for an active real-time doctor consultation session
 class ConsultationSession:
-    # Initialize transcript buffer, audio counter, and STT client
+    # Initialize transcript buffer, audio counter, STT client, and jitter buffer
     def __init__(self):
         self.transcript_buffer: List[str] = []
         self.audio_bytes_received: int = 0
         self.prisma_client = GnaniPrismaClient()
         self.listener_task: Optional[asyncio.Task] = None
+        self.jitter_task: Optional[asyncio.Task] = None
+        self.jitter_buffer = AudioJitterBuffer(max_wait_ms=80.0)
 
     # Append non-empty transcript segment to buffer
     def append_transcript(self, text: str) -> None:
@@ -33,10 +108,11 @@ class ConsultationSession:
     def get_full_transcript(self) -> str:
         return " ".join(self.transcript_buffer)
 
-    # Clear transcript buffer and reset audio counters
+    # Clear transcript buffer, reset audio counters, and clear jitter buffer
     def reset(self) -> None:
         self.transcript_buffer.clear()
         self.audio_bytes_received = 0
+        self.jitter_buffer.reset()
 
 
 # Full-duplex WebSocket endpoint for audio streaming and transcription
@@ -69,9 +145,27 @@ async def consultation_audio_stream(websocket: WebSocket):
         except Exception as err:
             logger.error(f"Error in STT listener loop: {err}")
 
+    # Periodic background task to drain timed-out packets from the jitter buffer
+    async def jitter_buffer_drain_loop():
+        """Checks for and flushes chunks exceeding the 80ms jitter wait threshold."""
+        try:
+            while True:
+                await asyncio.sleep(0.02)  # Tick every 20ms
+                ready = session.jitter_buffer.pop_ready()
+                for audio_chunk in ready:
+                    session.audio_bytes_received += len(audio_chunk)
+                    await session.prisma_client.send_audio_chunk(audio_chunk)
+        except asyncio.CancelledError:
+            pass
+        except Exception as err:
+            logger.error(f"Error in jitter buffer drain loop: {err}")
+
     # Launch background task to listen for upstream STT transcripts
     if prisma_connected:
         session.listener_task = asyncio.create_task(forward_stt_transcripts())
+
+    # Launch background jitter buffer drain loop
+    session.jitter_task = asyncio.create_task(jitter_buffer_drain_loop())
 
     try:
         # Main message loop receiving binary audio chunks and text commands
@@ -83,11 +177,23 @@ async def consultation_audio_stream(websocket: WebSocket):
                 logger.info("ASGI disconnect frame received.")
                 break
 
-            # 1. Binary Audio Frame: Pipe PCM audio to Gnani Prisma STT
+            # 1. Binary Audio Frame: Parse 4-byte sequence header & route through Jitter Buffer
             if "bytes" in message and message["bytes"]:
-                chunk = message["bytes"]
-                session.audio_bytes_received += len(chunk)
-                await session.prisma_client.send_audio_chunk(chunk)
+                raw_bytes = message["bytes"]
+                # Expected format: 4-byte Big-Endian uint32 sequence ID + 16kHz PCM audio
+                if len(raw_bytes) > 4:
+                    seq_num = struct.unpack("!I", raw_bytes[:4])[0]
+                    pcm_chunk = raw_bytes[4:]
+                    session.jitter_buffer.push(seq_num, pcm_chunk)
+                else:
+                    # Fallback for unsequenced raw bytes
+                    session.jitter_buffer.push(session.jitter_buffer.expected_seq, raw_bytes)
+
+                # Forward any contiguous in-order chunks immediately to Prisma STT
+                ready_chunks = session.jitter_buffer.pop_ready()
+                for audio_chunk in ready_chunks:
+                    session.audio_bytes_received += len(audio_chunk)
+                    await session.prisma_client.send_audio_chunk(audio_chunk)
                 continue
 
             # 2. Text / Control Frames
@@ -153,9 +259,17 @@ async def consultation_audio_stream(websocket: WebSocket):
     except Exception as exc:
         logger.error(f"Unexpected exception in consultation stream: {exc}")
     finally:
-        # Tear down background listener task and close upstream STT connection
+        # Tear down background tasks
+        if session.jitter_task and not session.jitter_task.done():
+            session.jitter_task.cancel()
         if session.listener_task and not session.listener_task.done():
             session.listener_task.cancel()
+
+        # Flush any remaining audio in the jitter buffer to Prisma STT
+        for audio_chunk in session.jitter_buffer.flush():
+            session.audio_bytes_received += len(audio_chunk)
+            await session.prisma_client.send_audio_chunk(audio_chunk)
+
         await session.prisma_client.close()
 
         # Close client websocket connection safely if still open
