@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Languages, Loader2 } from 'lucide-react'
+import { ArrowLeft, Languages, Loader2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import AudioRecorder from '../components/consultation/AudioRecorder'
@@ -49,7 +49,9 @@ export default function Consultation() {
   const [approved, setApproved] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [selectedLanguage, setSelectedLanguage] = useState('hi')
+  const [toastMessage, setToastMessage] = useState('')
   const timerRef = useRef(null)
+  const toastTimerRef = useRef(null)
 
   // Handle incoming WebSocket messages (transcripts, reasoning status, and extracted prescriptions)
   const handleMessage = useCallback((msg) => {
@@ -87,7 +89,10 @@ export default function Consultation() {
   })
 
   // Clear pending timers on component unmount
-  useEffect(() => () => clearTimeout(timerRef.current), [])
+  useEffect(() => () => {
+    clearTimeout(timerRef.current)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+  }, [])
 
   // Update prescription data in state and reset doctor approval flag
   const handleEdit = (next) => {
@@ -95,7 +100,7 @@ export default function Consultation() {
     setApproved(false)
   }
 
-  // Call backend WhatsApp dispatch endpoint to compile PDF and synthesize regional TTS audio
+  // Call backend WhatsApp dispatch endpoint to queue PDF and regional TTS audio in background
   const handlePrepare = async (phone) => {
     const cleanPhone = phone.replace(/\D/g, '')
     const targetUrl = `${API_BASE_URL}/api/v1/whatsapp/dispatch`.replace(/([^:]\/)\/+/g, '$1')
@@ -117,7 +122,15 @@ export default function Consultation() {
 
     const data = await res.json()
 
-    // Prefix relative asset URLs with backend server address
+    // Step B: Optimistic UI state - close modal immediately & display toast notification
+    setShareOpen(false)
+    setToastMessage('⚡ Prescription Queued! Audio & PDF generating in background.')
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage('')
+    }, 4500)
+
+    // Prefix relative asset URLs with backend server address (if provided)
     if (data.voice_note?.audio_url?.startsWith('/')) {
       data.voice_note.audio_url = `${API_BASE_URL}${data.voice_note.audio_url}`
     }
@@ -161,6 +174,29 @@ export default function Consultation() {
 
   return (
     <DashboardLayout>
+      {/* Optimistic Background Task Queued Toast */}
+      {toastMessage && (
+        <div
+          role="status"
+          className="fixed top-5 right-5 z-50 flex items-center gap-3 rounded-2xl border border-teal-500/30 bg-slate-900/95 px-4 py-3 text-white shadow-2xl backdrop-blur-md transition-all"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-teal-500/20 text-teal-400 font-bold">
+            ⚡
+          </span>
+          <div>
+            <p className="text-xs font-bold text-white">{toastMessage}</p>
+            <p className="text-[10px] text-teal-300">Doctor unblocked. Ready for next patient intake.</p>
+          </div>
+          <button
+            onClick={() => setToastMessage('')}
+            aria-label="Dismiss notification"
+            className="ml-2 rounded-lg p-1 text-slate-400 hover:text-white transition"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Top Action Header: Back navigation + Patient Voice Note Language Toggle */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <button

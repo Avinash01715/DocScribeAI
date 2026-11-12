@@ -47,6 +47,7 @@ class PrescriptionHistoryRepository:
                     audio_url TEXT,
                     pdf_url TEXT,
                     language TEXT DEFAULT 'hi',
+                    status TEXT DEFAULT 'COMPLETED',
                     full_payload_json TEXT NOT NULL
                 );
             """)
@@ -58,7 +59,7 @@ class PrescriptionHistoryRepository:
 
     def _migrate_schema(self) -> None:
         """
-        Idempotent, non-destructive schema migration for adding `language` column.
+        Idempotent, non-destructive schema migration for adding `language` and `status` columns.
         Inspects live metadata via PRAGMA table_info and handles transient locks defensively.
         """
         max_attempts = 3
@@ -70,19 +71,19 @@ class PrescriptionHistoryRepository:
                     ).fetchall()
                     existing_columns = {row["name"] for row in columns_info}
 
-                    if "language" in existing_columns:
-                        logger.info(
-                            "Column 'language' already present in prescription_history table. Skipping migration."
+                    if "language" not in existing_columns:
+                        conn.execute(
+                            "ALTER TABLE prescription_history ADD COLUMN language TEXT DEFAULT 'hi';"
                         )
-                        return
+                        logger.info("Added 'language' column to prescription_history.")
 
-                    conn.execute(
-                        "ALTER TABLE prescription_history ADD COLUMN language TEXT DEFAULT 'hi';"
-                    )
+                    if "status" not in existing_columns:
+                        conn.execute(
+                            "ALTER TABLE prescription_history ADD COLUMN status TEXT DEFAULT 'COMPLETED';"
+                        )
+                        logger.info("Added 'status' column to prescription_history.")
+
                     conn.commit()
-                    logger.info(
-                        "Non-destructive migration succeeded: added 'language' column (DEFAULT 'hi') to prescription_history."
-                    )
                     return
 
             except sqlite3.OperationalError as exc:
@@ -107,13 +108,14 @@ class PrescriptionHistoryRepository:
     def _insert(self, record: Dict[str, Any]) -> int:
         raw_lang = record.get("language")
         language = str(raw_lang).strip() if raw_lang and str(raw_lang).strip() else "hi"
+        status_val = record.get("status") or "COMPLETED"
 
         with self._connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO prescription_history (
                     patient_name, phone_number, diagnosis,
-                    medications_count, audio_url, pdf_url, language, full_payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    medications_count, audio_url, pdf_url, language, status, full_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record["patient_name"],
                 record["phone_number"],
@@ -122,9 +124,22 @@ class PrescriptionHistoryRepository:
                 record.get("audio_url"),
                 record.get("pdf_url"),
                 language,
+                status_val,
                 json.dumps(record["full_payload_json"])
             ))
             return cursor.lastrowid
+
+    def _update_record(self, record_id: int, updates: Dict[str, Any]) -> None:
+        if not updates:
+            return
+        fields = [f"{k} = ?" for k in updates.keys()]
+        values = list(updates.values())
+        values.append(record_id)
+        with self._connection() as conn:
+            conn.execute(
+                f"UPDATE prescription_history SET {', '.join(fields)} WHERE id = ?",
+                tuple(values)
+            )
 
     def _get_recent(self, limit: int = 10) -> List[Dict[str, Any]]:
         with self._connection() as conn:
@@ -132,7 +147,8 @@ class PrescriptionHistoryRepository:
                 SELECT 
                     id, created_at, patient_name, phone_number,
                     diagnosis, medications_count, audio_url, pdf_url,
-                    COALESCE(language, 'hi') AS language
+                    COALESCE(language, 'hi') AS language,
+                    COALESCE(status, 'COMPLETED') AS status
                 FROM prescription_history
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -143,7 +159,9 @@ class PrescriptionHistoryRepository:
     def _get_by_id(self, history_id: int) -> Optional[Dict[str, Any]]:
         with self._connection() as conn:
             cursor = conn.execute("""
-                SELECT id, created_at, COALESCE(language, 'hi') AS language, full_payload_json 
+                SELECT 
+                    id, created_at, COALESCE(language, 'hi') AS language, 
+                    COALESCE(status, 'COMPLETED') AS status, full_payload_json 
                 FROM prescription_history 
                 WHERE id = ?
             """, (history_id,))
@@ -157,6 +175,9 @@ class PrescriptionHistoryRepository:
     # Async thread-isolated wrappers
     async def save_record(self, record: Dict[str, Any]) -> int:
         return await asyncio.to_thread(self._insert, record)
+
+    async def update_record(self, record_id: int, updates: Dict[str, Any]) -> None:
+        return await asyncio.to_thread(self._update_record, record_id, updates)
 
     async def get_recent_records(self, limit: int = 10) -> List[Dict[str, Any]]:
         return await asyncio.to_thread(self._get_recent, limit)

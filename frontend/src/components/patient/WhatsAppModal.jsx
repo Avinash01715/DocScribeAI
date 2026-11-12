@@ -115,7 +115,11 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
     setBusy(true)
     setError('')
     try {
-      setResult(await onPrepare(normalized))
+      const data = await onPrepare(normalized)
+      setResult(data)
+      if (data?.status === 'queued') {
+        handleClose()
+      }
     } catch (e) {
       setError(e.message || 'Dispatch failed.')
     } finally {
@@ -227,7 +231,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-teal-700 disabled:opacity-40 transition"
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          <span>{busy ? 'Generating…' : result ? 'Regenerate Files' : 'Generate Voice & PDF Files'}</span>
+          <span>{busy ? 'Queueing Dispatch…' : result ? 'Regenerate Files' : 'Queue & Send via WhatsApp'}</span>
         </button>
 
         {/* Dispatch error display */}

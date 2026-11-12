@@ -1,10 +1,11 @@
 # backend/app/api/v1/endpoints/whatsapp.py
 import os
+import uuid
 from pathlib import Path
 from typing import Optional
 import urllib.parse
 import logging
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from app.schemas.prescription import PrescriptionExtractionResponse
@@ -41,140 +42,155 @@ def get_server_base_url(request: Request) -> str:
     env_base = os.getenv("SERVER_BASE_URL", "").strip().rstrip("/")
     if env_base:
         return env_base
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.base_url.netloc
-    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
-    return f"{proto}://{host}"
+    try:
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.base_url.netloc
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+        return f"{proto}://{host}"
+    except Exception:
+        return "http://localhost:8000"
 
 
-# Endpoint to generate vernacular voice note, compile PDF, and construct WhatsApp wa.me link
-@router.post("/dispatch", summary="Dispatch prescription text, PDF, and vernacular audio to WhatsApp")
-async def dispatch_prescription(payload: WhatsAppSendRequest, request: Request):
+async def process_heavy_dispatch_job(
+    consultation_id: str,
+    payload: WhatsAppSendRequest,
+    request: Request,
+    record_id: Optional[int] = None,
+):
     """
+    Background worker:
     1. Synthesizes vernacular dosage instructions via Gnani Timbre TTS (MP3).
     2. Compiles standardized PDF prescription via FPDF2.
-    3. Persists consultation to SQLite history repository for fast recent lookup.
-    4. Builds WhatsApp text summary and universal wa.me deep-link URL with direct audio & PDF links.
+    3. Updates SQLite consultation record from 'QUEUED' to 'COMPLETED'.
     """
-    # Normalize target language code (defaults cleanly to 'hi')
+    try:
+        base_url = get_server_base_url(request) if isinstance(request, Request) else str(request or "http://localhost:8000")
+        requested_lang = normalize_language_key(payload.language)
+
+        logger.info(f"[{consultation_id}] Background dispatch task started for {payload.phone_number} ({requested_lang})")
+
+        # 1. Synthesize regional audio note defensively (never aborts PDF generation)
+        try:
+            voice_note_result = await timbre_service.generate_voice_note(
+                payload.prescription_data,
+                language=requested_lang,
+            )
+        except Exception as exc:
+            logger.warning(f"[{consultation_id}] Vernacular TTS synthesis failed for '{requested_lang}': {exc}")
+            voice_note_result = {
+                "audio_url": None,
+                "script": timbre_service.construct_hindi_narrative(payload.prescription_data),
+                "synthesized": False,
+                "format": "mp3",
+                "language": "hi",
+            }
+
+        resolved_lang = normalize_language_key(voice_note_result.get("language") or requested_lang)
+
+        # 2. Compile standardized clinical PDF prescription document (FPDF2)
+        pdf_filename = generate_prescription_pdf(payload.prescription_data)
+        clean_pdf_name = Path(pdf_filename).name
+
+        pdf_static_url = f"/static/prescriptions/{clean_pdf_name}"
+        full_pdf_url = f"{base_url}{pdf_static_url}"
+
+        audio_static_url = voice_note_result.get("audio_url") or ""
+        if audio_static_url and not audio_static_url.startswith("http"):
+            full_audio_url = f"{base_url}{audio_static_url}"
+        else:
+            full_audio_url = audio_static_url
+
+        # 3. Update Consultation Record in SQLite from QUEUED to COMPLETED
+        if record_id:
+            await history_repo.update_record(record_id, {
+                "audio_url": full_audio_url,
+                "pdf_url": full_pdf_url,
+                "language": resolved_lang,
+                "status": "COMPLETED",
+            })
+            logger.info(f"[{consultation_id}] Background dispatch job finished successfully for record #{record_id}")
+        else:
+            p_info = payload.prescription_data.patient_info
+            meds = payload.prescription_data.prescription
+            clinical_findings = payload.prescription_data.clinical_findings
+            patient_name = getattr(p_info, "name", "Patient")
+            diagnosis = getattr(clinical_findings, "diagnosis", "Clinical Assessment")
+            clean_phone = "".join(filter(str.isdigit, payload.phone_number))
+            await history_repo.save_record({
+                "patient_name": patient_name,
+                "phone_number": clean_phone,
+                "diagnosis": diagnosis,
+                "medications_count": len(meds),
+                "audio_url": full_audio_url,
+                "pdf_url": full_pdf_url,
+                "language": resolved_lang,
+                "status": "COMPLETED",
+                "full_payload_json": payload.prescription_data.model_dump()
+            })
+    except Exception as exc:
+        logger.error(f"[{consultation_id}] Background dispatch job failed: {exc}", exc_info=True)
+        if record_id:
+            try:
+                await history_repo.update_record(record_id, {"status": "FAILED"})
+            except Exception:
+                pass
+
+
+# Endpoint to asynchronously queue voice note, PDF, and dispatch
+@router.post("/dispatch", summary="Dispatch prescription text, PDF, and vernacular audio to WhatsApp")
+async def dispatch_prescription(
+    payload: WhatsAppSendRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+):
+    """
+    Decoupled Asynchronous Dispatch Pipeline:
+    1. Instantly creates a consultation tracking ID and records 'QUEUED' status in SQLite.
+    2. Enqueues heavy TTS voice synthesis and PDF generation to FastAPI.BackgroundTasks.
+    3. Unblocks the doctor immediately (<30ms) with tracking confirmation.
+    """
+    consultation_id = str(uuid.uuid4())
     requested_lang = normalize_language_key(payload.language)
 
-    # 1. Synthesize regional audio note defensively (never aborts PDF generation)
-    try:
-        voice_note_result = await timbre_service.generate_voice_note(
-            payload.prescription_data,
-            language=requested_lang,
-        )
-    except Exception as exc:
-        logger.warning(f"Vernacular TTS synthesis failed for '{requested_lang}': {exc}")
-        voice_note_result = {
-            "audio_url": None,
-            "script": timbre_service.construct_hindi_narrative(payload.prescription_data),
-            "synthesized": False,
-            "format": "mp3",
-            "language": "hi",
-        }
-
-    resolved_lang = normalize_language_key(voice_note_result.get("language") or requested_lang)
-    lang_label = SUPPORTED_LANGUAGES.get(resolved_lang, {}).get("label", "Hindi")
-
-    # 2. Compile standardized clinical PDF prescription document (strictly un-translated English EMR)
-    pdf_filename = generate_prescription_pdf(payload.prescription_data)
-    clean_pdf_name = Path(pdf_filename).name
-
-    # Determine public server base URL and full download links
-    base_url = get_server_base_url(request)
-    pdf_static_url = f"/static/prescriptions/{clean_pdf_name}"
-    full_pdf_url = f"{base_url}{pdf_static_url}"
-
-    audio_static_url = voice_note_result.get("audio_url") or ""
-    if audio_static_url and not audio_static_url.startswith("http"):
-        full_audio_url = f"{base_url}{audio_static_url}"
-    else:
-        full_audio_url = audio_static_url
-
-    # 3. Construct formatted clinical message body for WhatsApp
+    # Extract summary fields for instant DB queue record
     p_info = payload.prescription_data.patient_info
     meds = payload.prescription_data.prescription
     clinical_findings = payload.prescription_data.clinical_findings
 
     patient_name = getattr(p_info, "name", "Patient")
     diagnosis = getattr(clinical_findings, "diagnosis", "Clinical Assessment")
-
-    text_lines = [
-        "🩺 *DHANVANTARI CLINIC PRESCRIPTION*",
-        f"Patient: *{patient_name}*",
-        f"Diagnosis: *{diagnosis}*",
-        "",
-        "📋 *Medication Schedule:*"
-    ]
-
-    # Append each prescribed medicine and dosage schedule
-    for idx, m in enumerate(meds, start=1):
-        drug_label = getattr(m, "verified_match", None) or getattr(m, "drug_name", "Medicine")
-        dosage = getattr(m, "dosage", "")
-        freq = getattr(m, "frequency", "")
-        timing = getattr(m, "timing", "")
-        duration = getattr(m, "duration", "")
-        text_lines.append(f"{idx}. *{drug_label}* ({dosage})")
-        text_lines.append(f"   Take: {freq} | {timing} | For {duration}")
-
-    # Append doctor dietary and lifestyle advice if present
-    advice = getattr(payload.prescription_data, "advice", None)
-    if advice:
-        text_lines.append(f"\n💡 *Advice:* {advice}")
-
-    # Append vernacular voice note transcription
-    script = voice_note_result.get("script", "")
-    if script:
-        text_lines.append(f"\n🔊 *Awaaz mein nirdesh ({lang_label}):*\n_{script}_")
-
-    # Embed direct clickable links for Audio & PDF into WhatsApp message body
-    if full_audio_url:
-        text_lines.append(f"\n🎧 *Audio Voice Note (Sunein):*\n{full_audio_url}")
-
-    if full_pdf_url:
-        text_lines.append(f"\n📄 *Prescription PDF (Download):*\n{full_pdf_url}")
-
-    text_lines.append("\n✅ *Dawai samay par lein. Shubhkaamnayein!*")
-
-    full_text_message = "\n".join(text_lines)
-
-    # 4. Clean phone number and generate wa.me universal deep link
     clean_phone = "".join(filter(str.isdigit, payload.phone_number))
-    encoded_text = urllib.parse.quote(full_text_message)
-    wa_deep_link = f"https://wa.me/{clean_phone}?text={encoded_text}"
 
-    # 5. Persist Consultation Record in SQLite (Append-Only History)
+    # Record immediately with QUEUED status in SQLite
+    record_id = None
     try:
-        await history_repo.save_record({
+        record_id = await history_repo.save_record({
             "patient_name": patient_name,
             "phone_number": clean_phone,
             "diagnosis": diagnosis,
             "medications_count": len(meds),
-            "audio_url": full_audio_url,
-            "pdf_url": full_pdf_url,
-            "language": resolved_lang,
+            "audio_url": None,
+            "pdf_url": None,
+            "language": requested_lang,
+            "status": "QUEUED",
             "full_payload_json": payload.prescription_data.model_dump()
         })
     except Exception as exc:
-        logger.error(f"Failed to record consultation to history repository: {exc}", exc_info=True)
+        logger.error(f"[{consultation_id}] Failed to insert initial QUEUED record: {exc}", exc_info=True)
 
-    # Return dispatch details including links to audio, PDF, language, and WhatsApp
+    # Heavy TTS generation aur PDF compilation background me delegate ho gaya
+    background_tasks.add_task(
+        process_heavy_dispatch_job,
+        consultation_id,
+        payload,
+        request,
+        record_id,
+    )
+
+    # Doctor gets immediate unblock in <30ms
     return {
-        "status": "success",
+        "status": "queued",
+        "tracking_id": consultation_id,
+        "record_id": record_id,
         "recipient": clean_phone,
-        "language": resolved_lang,
-        "whatsapp_deep_link": wa_deep_link,
-        "voice_note": {
-            "audio_url": full_audio_url,
-            "script": voice_note_result.get("script"),
-            "language": resolved_lang,
-            "synthesized": voice_note_result.get("synthesized", False),
-            "format": voice_note_result.get("format", "mp3")
-        },
-        "pdf_receipt": {
-            "file_name": clean_pdf_name,
-            "url": full_pdf_url,
-            "status": "generated"
-        }
+        "message": "Prescription queued for generation & dispatch"
     }

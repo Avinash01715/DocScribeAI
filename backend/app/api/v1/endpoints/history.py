@@ -21,6 +21,7 @@ class HistoryItem(BaseModel):
     audio_url: Optional[str] = None
     pdf_url: Optional[str] = None
     language: str = "hi"
+    status: Optional[str] = "COMPLETED"
 
 
 def _normalize_record(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -42,6 +43,7 @@ def _normalize_record(r: Dict[str, Any]) -> Dict[str, Any]:
         normalized["timestamp"] = str(normalized["timestamp"])
 
     normalized["language"] = normalized.get("language") or "hi"
+    normalized["status"] = normalized.get("status") or "COMPLETED"
     return normalized
 
 
@@ -64,4 +66,5 @@ async def get_prescription_detail(history_id: int):
             detail=f"Prescription record #{history_id} not found."
         )
     record["language"] = record.get("language") or "hi"
+    record["status"] = record.get("status") or "COMPLETED"
     return record
