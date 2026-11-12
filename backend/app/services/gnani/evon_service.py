@@ -1,5 +1,6 @@
 # backend/app/services/gnani/evon_service.py
 import os
+import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 import json
@@ -89,6 +90,63 @@ class EvonClinicalService:
         except Exception as exc:
             logger.error(f"Gemini clinical reasoning failed: {exc}. Reverting to fallback fixture.")
             return self._generate_mock_extraction(transcript)
+
+    async def translate_patient_instructions(
+        self,
+        instructions_text: str,
+        target_language_label: str = "Hindi",
+        target_language_code: str = "hi-IN"
+    ) -> str:
+        """
+        Translates patient-facing medication schedule and home-care advice into
+        warm, natural spoken vernacular script for TTS synthesis without mutating
+        the underlying English EMR/PDF clinical records.
+        """
+        if not instructions_text or not instructions_text.strip():
+            return instructions_text
+
+        if target_language_code.lower().startswith("en"):
+            return instructions_text
+
+        if not self.client:
+            logger.warning(
+                f"Gemini client unavailable for translation to {target_language_label}; using original instructions."
+            )
+            return instructions_text
+
+        system_prompt = (
+            f"You are an empathetic Indian clinical communicator. Translate the following "
+            f"patient medication instructions and home-care advice into natural, polite spoken "
+            f"{target_language_label} ({target_language_code}) using its native script so a "
+            f"text-to-speech engine can read it clearly to the patient.\n"
+            f"Rules:\n"
+            f"- Keep pharmaceutical drug names clear and recognizable.\n"
+            f"- Translate dosage frequencies, meal timings, durations, and home-care advice accurately.\n"
+            f"- Output ONLY the spoken paragraph without markdown, bullet points, or commentary."
+        )
+
+        async def _async_translate() -> str:
+            resp = await self.client.aio.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=instructions_text,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.2,
+                ),
+            )
+            return (resp.text or "").strip()
+
+        try:
+            translated = await asyncio.wait_for(_async_translate(), timeout=10.0)
+            if translated:
+                return translated
+            return instructions_text
+        except Exception as exc:
+            logger.warning(
+                f"Patient instruction translation to {target_language_label} failed ({exc}); "
+                "falling back cleanly."
+            )
+            return instructions_text
 
     # Provide deterministic synthetic consultation data for offline testing
     def _generate_mock_extraction(self, transcript: str) -> PrescriptionExtractionResponse:

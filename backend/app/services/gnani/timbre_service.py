@@ -27,13 +27,57 @@ logger = logging.getLogger("dhanvantari.timbre")
 GNANI_TIMBRE_URL = os.getenv("GNANI_TIMBRE_URL", "https://api.vachana.ai/api/v1/tts/inference")
 GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
 
-# Default audio sampling rate
+# Upstream Gnani Timbre native clock (16 kHz, 16-bit Mono Linear PCM)
 DEFAULT_SAMPLE_RATE = 48000
 
 # Cache directory for synthesized audio files
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 AUDIO_CACHE_DIR = BASE_DIR / "data" / "audio_cache"
 AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Centralized language mapping for Gnani Timbre TTS using timbre-v3.0 certified voices
+SUPPORTED_LANGUAGES: Dict[str, Dict[str, str]] = {
+    "hi": {"code": "hi-IN", "label": "Hindi", "default_voice": "Shivani"},
+    "en": {"code": "en-IN", "label": "English", "default_voice": "Shivani"},
+    "ta": {"code": "ta-IN", "label": "Tamil", "default_voice": "Lakshmi"},
+    "te": {"code": "te-IN", "label": "Telugu", "default_voice": "Lakshmi"},
+    "bn": {"code": "bn-IN", "label": "Bengali", "default_voice": "Shivani"},
+}
+
+FALLBACK_VOICES = ["Shivani", "Lakshmi", "Avinash", "Kalpana", "Shubham", "Prakash", "Devansh"]
+
+
+def normalize_language_key(lang_input: Optional[str]) -> str:
+    """
+    Normalizes ISO 639-1, BCP 47, or display label inputs ('hi', 'ta', 'hi-IN', 'Tamil')
+    to a canonical 2-letter language key. Falls back to 'hi' if unsupported or None.
+    """
+    if not lang_input or not isinstance(lang_input, str):
+        return "hi"
+    cleaned = lang_input.strip().lower().replace("_", "-")
+    if not cleaned:
+        return "hi"
+    if cleaned in SUPPORTED_LANGUAGES:
+        return cleaned
+    prefix = cleaned.split("-")[0]
+    if prefix in SUPPORTED_LANGUAGES:
+        return prefix
+    for key, meta in SUPPORTED_LANGUAGES.items():
+        if meta["label"].lower() == cleaned or meta["code"].lower() == cleaned:
+            return key
+    logger.warning(f"Unsupported language input '{lang_input}'. Falling back cleanly to 'hi'.")
+    return "hi"
+
+
+def resolve_tts_language(lang_input: Optional[str]) -> Tuple[str, str]:
+    """
+    Defensive resolver mapping shorthand or BCP-47 inputs ('hi', 'ta', 'hi-IN')
+    to the corresponding Gnani Timbre locale code and certified timbre-v3.0 voice.
+    Falls back cleanly to ('hi-IN', 'Shivani') for unsupported codes or None.
+    """
+    key = normalize_language_key(lang_input)
+    meta = SUPPORTED_LANGUAGES[key]
+    return meta["code"], meta["default_voice"]
 
 
 # Service handling speech synthesis and MP3 transcoding for patient voice notes
@@ -43,6 +87,53 @@ class TimbreTTSService:
         self.api_url = GNANI_TIMBRE_URL
         self.api_key = GNANI_API_KEY
         self.cache_dir = AUDIO_CACHE_DIR
+
+    # Construct clean English patient instructions isolating patient advice from medical prescription
+    def construct_english_narrative(self, data: Any) -> str:
+        """
+        Transforms clinical entities into clear spoken English patient instructions
+        and isolated home-care advice prior to optional LLM vernacular translation.
+        """
+        p_info = getattr(data, "patient_info", None) or (data.get("patient_info") if isinstance(data, dict) else None)
+        p_name = (
+            (getattr(p_info, "name", None) or (p_info.get("name") if isinstance(p_info, dict) else None))
+            if p_info else None
+        )
+        patient_name = p_name if p_name and p_name != "Unknown" else "Patient"
+
+        phrases = [f"Hello {patient_name}, here are your prescription instructions."]
+        prescription = getattr(data, "prescription", None) or (data.get("prescription") if isinstance(data, dict) else [])
+
+        for med in prescription:
+            freq = getattr(med, "frequency", None) or (med.get("frequency") if isinstance(med, dict) else "")
+            dosage = getattr(med, "dosage", None) or (med.get("dosage") if isinstance(med, dict) else "")
+            timing = getattr(med, "timing", None) or (med.get("timing") if isinstance(med, dict) else "")
+            duration = getattr(med, "duration", None) or (med.get("duration") if isinstance(med, dict) else "")
+            drug_name = (
+                getattr(med, "verified_match", None)
+                or getattr(med, "drug_name", None)
+                or (med.get("verified_match") if isinstance(med, dict) else None)
+                or (med.get("drug_name") if isinstance(med, dict) else "Medication")
+            )
+
+            freq_text = "once daily"
+            if freq == "1 - 1 - 1":
+                freq_text = "three times a day"
+            elif freq == "1 - 0 - 1":
+                freq_text = "twice a day, morning and evening"
+            elif freq == "1 - 0 - 0":
+                freq_text = "once in the morning"
+
+            timing_text = "after meals" if "after" in str(timing).lower() else "before food"
+            dose_part = f"{dosage}, " if dosage else ""
+            duration_part = f" for {duration}" if duration else ""
+            phrases.append(f"Take {drug_name}, {dose_part}{freq_text} {timing_text}{duration_part}.")
+
+        advice = getattr(data, "advice", None) or (data.get("advice") if isinstance(data, dict) else "")
+        if advice and str(advice).strip():
+            phrases.append(f"Home care advice: {str(advice).strip()}.")
+
+        return " ".join(phrases)
 
     # Construct regional spoken Hindi dosage instructions from prescription data
     def construct_hindi_narrative(self, data: Any) -> str:
@@ -130,14 +221,17 @@ class TimbreTTSService:
     async def synthesize_raw_audio(
         self,
         text: str,
-        language: str = "hi-IN",
+        language: Optional[str] = "hi-IN",
         voice: Optional[str] = None,
-        target_sample_rate: int = DEFAULT_SAMPLE_RATE
+        target_sample_rate: int = DEFAULT_SAMPLE_RATE,
+        allow_hindi_fallback: bool = True
     ) -> Tuple[bytes, int]:
         """
         Synthesizes text via Gnani Timbre TTS and returns (wav_bytes, sample_rate).
         Guarantees container encapsulation aligned to target_sample_rate.
         """
+        gnani_lang, default_voice = resolve_tts_language(language)
+
         # Generate silent WAV fallback when API key is unconfigured
         if not self.api_key:
             logger.info(f"GNANI_API_KEY unconfigured. Generating synthetic silent buffer at {target_sample_rate}Hz.")
@@ -149,7 +243,8 @@ class TimbreTTSService:
             "Content-Type": "application/json"
         }
 
-        candidates = [voice] if voice else ["Avinash", "Lakshmi", "Shivani", "Kalpana", "Shubham", "Prakash", "Devansh"]
+        primary = voice or default_voice
+        candidates = [primary] + [c for c in FALLBACK_VOICES if c != primary]
 
         # Iterate over voice candidates until synthesis succeeds
         for v in candidates:
@@ -158,7 +253,7 @@ class TimbreTTSService:
 
             payload = {
                 "text": text,
-                "language": language,
+                "language": gnani_lang,
                 "voice": v,
                 "model": "timbre-v3.0",
                 "container": "wav",
@@ -190,17 +285,28 @@ class TimbreTTSService:
                     wav_bytes = self._package_pcm_to_wav(content, sample_rate=detected_rate)
 
                 logger.info(
-                    f"Synthesized TTS audio with voice '{v}' (SampleRate: {detected_rate}Hz, Bytes: {len(wav_bytes)})"
+                    f"Synthesized TTS audio ({gnani_lang}) with voice '{v}' "
+                    f"(SampleRate: {detected_rate}Hz, Bytes: {len(wav_bytes)})"
                 )
                 return wav_bytes, detected_rate
 
             except Exception as exc:
-                logger.warning(f"Voice candidate '{v}' synthesis failed: {exc}")
-                if v == candidates[-1]:
-                    logger.error("All Timbre voice candidates exhausted. Returning calibrated fallback audio.")
-                    silent_pcm = b"\x00" * (target_sample_rate * 2)
-                    return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
+                logger.warning(f"Voice candidate '{v}' synthesis failed for '{gnani_lang}': {exc}")
 
+        # Regional dialect failover to Hindi before returning calibrated silence
+        if allow_hindi_fallback and gnani_lang != "hi-IN":
+            logger.warning(
+                f"All voice candidates failed for '{gnani_lang}'. Falling back to 'hi-IN' synthesis."
+            )
+            return await self.synthesize_raw_audio(
+                text=text,
+                language="hi-IN",
+                voice="Shivani",
+                target_sample_rate=target_sample_rate,
+                allow_hindi_fallback=False,
+            )
+
+        logger.error("All Timbre voice candidates exhausted. Returning calibrated fallback audio.")
         silent_pcm = b"\x00" * (target_sample_rate * 2)
         return self._package_pcm_to_wav(silent_pcm, sample_rate=target_sample_rate), target_sample_rate
 
@@ -208,13 +314,17 @@ class TimbreTTSService:
     async def synthesize_text(
         self,
         text: str,
-        language: str = "hi-IN",
-        output_filename: Optional[str] = None
+        language: Optional[str] = "hi",
+        output_filename: Optional[str] = None,
+        voice: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Synthesizes speech via Gnani Timbre TTS, transcodes to 64kbps MP3 in a worker thread,
         and safely writes to the ephemeral cache directory.
         """
+        lang_key = normalize_language_key(language)
+        gnani_code, default_voice = resolve_tts_language(lang_key)
+
         if output_filename:
             base_name = Path(output_filename).stem
             file_id = f"{base_name}.mp3"
@@ -223,45 +333,126 @@ class TimbreTTSService:
 
         output_filepath = self.cache_dir / file_id
 
-        # 1. Fetch raw synthesized audio buffer
-        wav_bytes, detected_rate = await self.synthesize_raw_audio(
-            text=text,
-            language=language,
-            target_sample_rate=DEFAULT_SAMPLE_RATE
-        )
+        try:
+            # 1. Fetch raw synthesized audio buffer
+            wav_bytes, detected_rate = await self.synthesize_raw_audio(
+                text=text,
+                language=gnani_code,
+                voice=voice or default_voice,
+                target_sample_rate=DEFAULT_SAMPLE_RATE
+            )
 
-        # 2. Non-blocking transcode to MP3 in worker thread
-        mp3_bytes = await asyncio.to_thread(
-            self._transcode_wav_to_mp3,
-            wav_bytes,
-            detected_rate
-        )
+            # 2. Non-blocking transcode to MP3 in worker thread
+            mp3_bytes = await asyncio.to_thread(
+                self._transcode_wav_to_mp3,
+                wav_bytes,
+                detected_rate
+            )
 
-        # 3. Non-blocking write to disk cache in worker thread
-        await asyncio.to_thread(self._write_bytes_to_disk, output_filepath, mp3_bytes)
+            # 3. Non-blocking write to disk cache in worker thread
+            await asyncio.to_thread(self._write_bytes_to_disk, output_filepath, mp3_bytes)
 
-        logger.info(f"Persisted WhatsApp-compliant MP3 asset: {file_id} ({len(mp3_bytes)} bytes)")
+            logger.info(
+                f"Persisted WhatsApp-compliant MP3 asset ({gnani_code}): {file_id} ({len(mp3_bytes)} bytes)"
+            )
 
-        return {
-            "file_name": file_id,
-            "audio_url": f"/static/audio/{file_id}",
-            "local_path": str(output_filepath),
-            "script": text,
-            "sample_rate": detected_rate,
-            "format": "mp3",
-            "content_type": "audio/mpeg",
-            "synthesized": bool(self.api_key)
-        }
+            return {
+                "file_name": file_id,
+                "audio_url": f"/static/audio/{file_id}",
+                "local_path": str(output_filepath),
+                "script": text,
+                "language": lang_key,
+                "locale": gnani_code,
+                "sample_rate": detected_rate,
+                "format": "mp3",
+                "content_type": "audio/mpeg",
+                "synthesized": bool(self.api_key)
+            }
+        except Exception as exc:
+            logger.error(f"Audio synthesis/transcode pipeline error ({gnani_code}): {exc}", exc_info=True)
+            return {
+                "file_name": None,
+                "audio_url": None,
+                "local_path": None,
+                "script": text,
+                "language": lang_key,
+                "locale": gnani_code,
+                "sample_rate": DEFAULT_SAMPLE_RATE,
+                "format": "mp3",
+                "content_type": "audio/mpeg",
+                "synthesized": False
+            }
 
     # Generate complete regional voice note from clinical consultation object
     async def generate_voice_note(
         self,
         data: Any,
-        language: str = "hi-IN"
+        language: Optional[str] = "hi"
     ) -> Dict[str, Any]:
-        """Backwards-compatible interface for structured consultation models."""
-        hindi_script = self.construct_hindi_narrative(data)
-        return await self.synthesize_text(text=hindi_script, language=language)
+        """
+        Builds isolated patient instructions, translates to target vernacular script when
+        language != 'en', and synthesizes MP3 voice note with defensive Hindi fallback.
+        """
+        lang_key = normalize_language_key(language)
+        gnani_code, default_voice = resolve_tts_language(lang_key)
+        lang_label = SUPPORTED_LANGUAGES[lang_key]["label"]
+
+        # 1. Isolate patient instructions (medical prescription + home-care advice) without mutating PDF entities
+        english_script = self.construct_english_narrative(data)
+
+        if lang_key == "en":
+            spoken_script = english_script
+        else:
+            from app.services.gnani.evon_service import evon_service
+
+            translated = await evon_service.translate_patient_instructions(
+                instructions_text=english_script,
+                target_language_label=lang_label,
+                target_language_code=gnani_code,
+            )
+            # If translation fell back to original English and target is Hindi, use local Hinglish builder
+            if lang_key == "hi" and translated == english_script:
+                spoken_script = self.construct_hindi_narrative(data)
+            else:
+                spoken_script = translated
+
+        # 2. Defensive TTS Synthesis with automatic Hindi fallback on regional failure
+        try:
+            result = await self.synthesize_text(
+                text=spoken_script,
+                language=gnani_code,
+                voice=default_voice
+            )
+            if not result.get("audio_url") and lang_key != "hi":
+                raise RuntimeError(f"Empty audio asset generated for {gnani_code}")
+            result["language"] = lang_key
+            return result
+        except Exception as exc:
+            logger.warning(
+                f"Regional TTS synthesis failed for '{gnani_code}' ({exc}). Falling back to 'hi-IN'."
+            )
+            try:
+                hindi_fallback_script = self.construct_hindi_narrative(data)
+                fallback_res = await self.synthesize_text(
+                    text=hindi_fallback_script,
+                    language="hi-IN",
+                    voice=SUPPORTED_LANGUAGES["hi"]["default_voice"],
+                )
+                fallback_res["language"] = "hi"
+                return fallback_res
+            except Exception as inner_exc:
+                logger.error(f"Hindi fallback TTS synthesis also failed: {inner_exc}")
+                return {
+                    "file_name": None,
+                    "audio_url": None,
+                    "local_path": None,
+                    "script": spoken_script,
+                    "language": lang_key,
+                    "locale": gnani_code,
+                    "format": "mp3",
+                    "content_type": "audio/mpeg",
+                    "synthesized": False,
+                }
 
 
 # Service instance singleton
@@ -271,12 +462,14 @@ timbre_service = TimbreTTSService()
 # Adapter function to synthesize speech directly from orchestrator
 async def synthesize_timbre_audio(
     text: str,
-    language: str = "hi-IN",
-    output_filename: Optional[str] = None
+    language: Optional[str] = "hi",
+    output_filename: Optional[str] = None,
+    voice: Optional[str] = None
 ) -> Dict[str, Any]:
     """Adapter function invoked directly by app/services/orchestrator.py."""
     return await timbre_service.synthesize_text(
         text=text,
         language=language,
-        output_filename=output_filename
+        output_filename=output_filename,
+        voice=voice
     )

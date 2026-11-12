@@ -1,13 +1,17 @@
 # backend/app/services/history_service.py
 import sqlite3
 import json
+import time
+import logging
 import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+
+logger = logging.getLogger("dhanvantari.history")
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "consultations.db"
+
 
 class PrescriptionHistoryRepository:
     def __init__(self, db_path: Path = DB_PATH):
@@ -18,6 +22,8 @@ class PrescriptionHistoryRepository:
     def _connection(self):
         conn = sqlite3.connect(str(self.db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
+        # Configure busy timeout before WAL mode pragma for concurrent safety
+        conn.execute("PRAGMA busy_timeout=10000;")
         # Enable Write-Ahead Logging (WAL) for concurrent read/write throughput
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
@@ -40,6 +46,7 @@ class PrescriptionHistoryRepository:
                     medications_count INTEGER DEFAULT 0,
                     audio_url TEXT,
                     pdf_url TEXT,
+                    language TEXT DEFAULT 'hi',
                     full_payload_json TEXT NOT NULL
                 );
             """)
@@ -47,14 +54,66 @@ class PrescriptionHistoryRepository:
                 CREATE INDEX IF NOT EXISTS idx_history_created_at 
                 ON prescription_history (created_at DESC);
             """)
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """
+        Idempotent, non-destructive schema migration for adding `language` column.
+        Inspects live metadata via PRAGMA table_info and handles transient locks defensively.
+        """
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                with self._connection() as conn:
+                    columns_info = conn.execute(
+                        "PRAGMA table_info(prescription_history);"
+                    ).fetchall()
+                    existing_columns = {row["name"] for row in columns_info}
+
+                    if "language" in existing_columns:
+                        logger.info(
+                            "Column 'language' already present in prescription_history table. Skipping migration."
+                        )
+                        return
+
+                    conn.execute(
+                        "ALTER TABLE prescription_history ADD COLUMN language TEXT DEFAULT 'hi';"
+                    )
+                    conn.commit()
+                    logger.info(
+                        "Non-destructive migration succeeded: added 'language' column (DEFAULT 'hi') to prescription_history."
+                    )
+                    return
+
+            except sqlite3.OperationalError as exc:
+                if "locked" in str(exc).lower() and attempt < max_attempts:
+                    logger.warning(
+                        f"Transient SQLite lock during schema migration (attempt {attempt}/{max_attempts}): {exc}"
+                    )
+                    time.sleep(0.2 * attempt)
+                    continue
+                logger.error(
+                    f"SQLite OperationalError during schema migration (non-fatal): {exc}",
+                    exc_info=True
+                )
+                return
+            except Exception as exc:
+                logger.error(
+                    f"Unexpected error during schema migration (non-fatal): {exc}",
+                    exc_info=True
+                )
+                return
 
     def _insert(self, record: Dict[str, Any]) -> int:
+        raw_lang = record.get("language")
+        language = str(raw_lang).strip() if raw_lang and str(raw_lang).strip() else "hi"
+
         with self._connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO prescription_history (
                     patient_name, phone_number, diagnosis,
-                    medications_count, audio_url, pdf_url, full_payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    medications_count, audio_url, pdf_url, language, full_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record["patient_name"],
                 record["phone_number"],
@@ -62,6 +121,7 @@ class PrescriptionHistoryRepository:
                 record["medications_count"],
                 record.get("audio_url"),
                 record.get("pdf_url"),
+                language,
                 json.dumps(record["full_payload_json"])
             ))
             return cursor.lastrowid
@@ -71,7 +131,8 @@ class PrescriptionHistoryRepository:
             cursor = conn.execute("""
                 SELECT 
                     id, created_at, patient_name, phone_number,
-                    diagnosis, medications_count, audio_url, pdf_url
+                    diagnosis, medications_count, audio_url, pdf_url,
+                    COALESCE(language, 'hi') AS language
                 FROM prescription_history
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -82,7 +143,7 @@ class PrescriptionHistoryRepository:
     def _get_by_id(self, history_id: int) -> Optional[Dict[str, Any]]:
         with self._connection() as conn:
             cursor = conn.execute("""
-                SELECT id, created_at, full_payload_json 
+                SELECT id, created_at, COALESCE(language, 'hi') AS language, full_payload_json 
                 FROM prescription_history 
                 WHERE id = ?
             """, (history_id,))

@@ -1,6 +1,7 @@
 /**
  * historyApi.js - Client persistence adapter and URL resolver for consultation records
  */
+import { getLanguageMeta } from '../utils/languages'
 
 // Resolves base API endpoint across development, Docker, Railway, and Render
 export function getApiBaseUrl() {
@@ -53,6 +54,7 @@ export function buildWhatsAppShareUrl(record) {
   const diagnosis = record.diagnosis || 'Clinical OPD Assessment'
   const pdfFullUrl = resolveAssetUrl(record.pdf_url)
   const audioFullUrl = resolveAssetUrl(record.audio_url)
+  const { label: languageLabel } = getLanguageMeta(record.language)
 
   const lines = [
     `🩺 *DHANVANTARI CLINIC PRESCRIPTION*`,
@@ -64,7 +66,7 @@ export function buildWhatsAppShareUrl(record) {
   ]
 
   if (audioFullUrl) {
-    lines.push(``, `🔊 *Audio Voice Note:*`, audioFullUrl)
+    lines.push(``, `🔊 Voice Instructions (${languageLabel}): ${audioFullUrl}`)
   }
 
   lines.push(``, `✅ *Dawai samay par lein. Shubhkaamnayein!*`)
@@ -81,12 +83,13 @@ export function buildSharePayload(record) {
   const diagnosis = record.diagnosis || 'OPD Assessment'
   const pdfFullUrl = resolveAssetUrl(record.pdf_url)
   const audioFullUrl = resolveAssetUrl(record.audio_url)
+  const { label: languageLabel } = getLanguageMeta(record.language)
 
   const textLines = [
     `Dhanvantari Prescription for ${patientName}`,
     `Diagnosis: ${diagnosis}`,
     pdfFullUrl ? `Prescription PDF: ${pdfFullUrl}` : null,
-    audioFullUrl ? `Voice Note: ${audioFullUrl}` : null,
+    audioFullUrl ? `🔊 Voice Instructions (${languageLabel}): ${audioFullUrl}` : null,
   ].filter(Boolean)
 
   return {

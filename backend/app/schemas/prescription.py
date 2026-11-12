@@ -131,3 +131,4 @@ class PrescriptionExtractionResponse(BaseModel):
         default=None, 
         description="Lifestyle, hydration, or dietary advice (e.g. gargling, parhez)"
     )
+ClinicalExtractionPayload = PrescriptionExtractionResponse
