@@ -30,6 +30,7 @@ class AudioJitterBuffer:
         # Priority queue entries: (sequence_number, arrival_timestamp, audio_bytes)
         self.heap: List[Tuple[int, float, bytes]] = []
         self.expected_seq: int = 0
+        self.first_packet: bool = True
 
     def push(self, seq_num: int, audio: bytes) -> None:
         """Push an incoming audio chunk with its sequence number and monotonic timestamp."""
@@ -46,6 +47,11 @@ class AudioJitterBuffer:
 
         while self.heap:
             seq_num, arrival_time, audio = self.heap[0]
+
+            # Synchronize expected sequence with the first incoming packet to avoid initial lag
+            if self.first_packet:
+                self.expected_seq = seq_num
+                self.first_packet = False
 
             # In-order packet ready for consumption
             if seq_num == self.expected_seq:
@@ -86,6 +92,7 @@ class AudioJitterBuffer:
         """Reset sequence tracker and clear buffer."""
         self.heap.clear()
         self.expected_seq = 0
+        self.first_packet = True
 
 
 # Manages state for an active real-time doctor consultation session
@@ -132,15 +139,17 @@ async def consultation_audio_stream(websocket: WebSocket):
             async for token_data in session.prisma_client.receive_transcripts():
                 text = token_data.get("text", "")
                 if text:
-                    if token_data.get("is_final"):
+                    is_final = token_data.get("is_final", False)
+                    if is_final:
                         session.append_transcript(text)
+                    logger.info(f"Relaying STT transcript: '{text}' (is_final={is_final})")
                     await websocket.send_json({
                         "type": "TRANSCRIPT_UPDATE",
                         "text": text,
                         "speaker": "Consultation",
-                        "interim": text,
+                        "interim": text if not is_final else "",
                         "transcript": session.get_full_transcript(),
-                        "is_final": token_data.get("is_final", False)
+                        "is_final": is_final
                     })
         except Exception as err:
             logger.error(f"Error in STT listener loop: {err}")
@@ -180,14 +189,20 @@ async def consultation_audio_stream(websocket: WebSocket):
             # 1. Binary Audio Frame: Parse 4-byte sequence header & route through Jitter Buffer
             if "bytes" in message and message["bytes"]:
                 raw_bytes = message["bytes"]
-                # Expected format: 4-byte Big-Endian uint32 sequence ID + 16kHz PCM audio
-                if len(raw_bytes) > 4:
+                # Detect 4-byte sequence header: sequence numbers start at 0, so first 2 bytes are 0x00 0x00
+                if len(raw_bytes) > 4 and raw_bytes[0] == 0 and raw_bytes[1] == 0:
                     seq_num = struct.unpack("!I", raw_bytes[:4])[0]
                     pcm_chunk = raw_bytes[4:]
                     session.jitter_buffer.push(seq_num, pcm_chunk)
                 else:
-                    # Fallback for unsequenced raw bytes
+                    # Safe fallback for raw unsequenced PCM audio
                     session.jitter_buffer.push(session.jitter_buffer.expected_seq, raw_bytes)
+
+                # Auto-connect upstream STT if disconnected or interrupted
+                if not session.prisma_client._is_active:
+                    connected = await session.prisma_client.connect()
+                    if connected and (not session.listener_task or session.listener_task.done()):
+                        session.listener_task = asyncio.create_task(forward_stt_transcripts())
 
                 # Forward any contiguous in-order chunks immediately to Prisma STT
                 ready_chunks = session.jitter_buffer.pop_ready()

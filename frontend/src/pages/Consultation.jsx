@@ -54,15 +54,17 @@ export default function Consultation() {
   // Handle incoming WebSocket messages (transcripts, reasoning status, and extracted prescriptions)
   const handleMessage = useCallback((msg) => {
     if (msg.type === 'TRANSCRIPT' || msg.type === 'TRANSCRIPT_UPDATE') {
+      const isFinal = msg.is_final ?? true
       const token = msg.text || msg.interim || msg.transcript
-      if (token) {
+      // Append confirmed final utterances to history; interim tokens stream live in viewport
+      if (token && isFinal) {
         setLines((prev) => [
           ...prev,
           {
             id: ++lineId,
             speaker: msg.speaker || 'Consultation',
             text: token,
-            is_final: msg.is_final ?? true,
+            is_final: true,
           },
         ])
       }

@@ -184,6 +184,14 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
       source.connect(analyser)
       const processor = audioContext.createScriptProcessor(2048, 1, 1)
       processorRef.current = processor
+
+      // Adaptive Edge VAD constants:
+      // VAD_THRESHOLD: 0.006 suppresses fan and ambient room noise while preserving soft consonants
+      // HANGOVER_FRAMES: 12 chunks (~500ms) preserves word endings and delivers silence tail to upstream STT VAD
+      const VAD_THRESHOLD = 0.006
+      const HANGOVER_FRAMES = 12
+      let hangoverCount = 0
+
       processor.onaudioprocess = (e) => {
         if (stateRef.current !== 'RECORDING') return
         const inputData = e.inputBuffer.getChannelData(0)
@@ -195,9 +203,15 @@ export default function AudioRecorder({ onStart, onChunk, onStop, onReset, disab
         }
         const rms = Math.sqrt(sum / inputData.length)
 
-        // Edge VAD: If RMS is below ambient background threshold (0.012), drop silence
-        if (rms < 0.012) {
-          return // Skip WebSocket send (Silence suppressed at edge)
+        // Active speech detected: refresh hangover window
+        if (rms >= VAD_THRESHOLD) {
+          hangoverCount = HANGOVER_FRAMES
+        } else if (hangoverCount > 0) {
+          // Trailing speech / short pause: deliver natural silence tail for upstream STT end-of-speech detection
+          hangoverCount--
+        } else {
+          // Prolonged silence: drop frame at edge to conserve bandwidth
+          return
         }
 
         onChunk?.(floatTo16BitPCM(downsampleTo16k(inputData, audioContext.sampleRate)))

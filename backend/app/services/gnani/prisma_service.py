@@ -1,6 +1,12 @@
 # backend/app/services/gnani_prisma.py
 import os
+from pathlib import Path
 from dotenv import load_dotenv
+
+# Ensure .env is resolved reliably across all execution roots and deployment environments
+_backend_env = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+if _backend_env.exists():
+    load_dotenv(dotenv_path=_backend_env)
 load_dotenv()
 import json
 import asyncio
@@ -27,9 +33,9 @@ class GnaniPrismaClient:
     """
     # Initialize connection credentials and stream status
     def __init__(self, api_key: Optional[str] = None, endpoint_url: Optional[str] = None):
-        self.api_key = api_key or GNANI_API_KEY
-        self.endpoint_url = endpoint_url or PRISMA_WS_URL
-        self.lang_code = GNANI_LANG_CODE
+        self.api_key = api_key or os.getenv("GNANI_API_KEY", "")
+        self.endpoint_url = endpoint_url or os.getenv("GNANI_PRISMA_URL", "wss://api.vachana.ai/stt/v3/stream")
+        self.lang_code = os.getenv("GNANI_STT_LANG", "hi-IN")
         self._ws: Optional[ClientConnection] = None
         self._is_active = False
 
@@ -84,16 +90,18 @@ class GnaniPrismaClient:
                     try:
                         data = json.loads(raw_message)
                         msg_type = data.get("type", "")
-                        if msg_type == "transcript":
-                            raw_text = (data.get("text") or data.get("transcript") or "").strip()
-                            if raw_text:
-                                # Convert Devanagari Hindi text to readable Hinglish (Roman script)
-                                hinglish_text = devanagari_to_hinglish(raw_text)
-                                yield {
-                                    "is_final": data.get("is_final", True),
-                                    "text": hinglish_text,
-                                    "confidence": float(data.get("confidence", 1.0))
-                                }
+                        raw_text = (data.get("text") or data.get("transcript") or "").strip()
+                        if not raw_text and "alternatives" in data and len(data["alternatives"]) > 0:
+                            raw_text = data["alternatives"][0].get("transcript", "").strip()
+
+                        if raw_text:
+                            is_final = data.get("is_final", msg_type == "transcript")
+                            hinglish_text = devanagari_to_hinglish(raw_text)
+                            yield {
+                                "is_final": is_final,
+                                "text": hinglish_text,
+                                "confidence": float(data.get("confidence", 1.0))
+                            }
                     except json.JSONDecodeError:
                         raw_str = raw_message.strip()
                         yield {"is_final": False, "text": devanagari_to_hinglish(raw_str), "confidence": 1.0}
