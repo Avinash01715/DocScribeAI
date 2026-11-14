@@ -17,7 +17,7 @@ from websockets.asyncio.client import ClientConnection
 from app.utils.hinglish import devanagari_to_hinglish
 
 # Initialize logger for Gnani Prisma STT service
-logger = logging.getLogger("dhanvantari.prisma")
+logger = logging.getLogger("docscribe.prisma")
 
 # Upstream Gnani Prisma STT configuration settings
 PRISMA_WS_URL = os.getenv("GNANI_PRISMA_URL", "wss://api.vachana.ai/stt/v3/stream")
@@ -96,7 +96,8 @@ class GnaniPrismaClient:
 
                         if raw_text:
                             is_final = data.get("is_final", msg_type == "transcript")
-                            hinglish_text = devanagari_to_hinglish(raw_text)
+                            # Offload CPU-bound regex transliteration to worker thread to prevent event-loop stalls
+                            hinglish_text = await asyncio.to_thread(devanagari_to_hinglish, raw_text)
                             yield {
                                 "is_final": is_final,
                                 "text": hinglish_text,
@@ -104,7 +105,9 @@ class GnaniPrismaClient:
                             }
                     except json.JSONDecodeError:
                         raw_str = raw_message.strip()
-                        yield {"is_final": False, "text": devanagari_to_hinglish(raw_str), "confidence": 1.0}
+                        if raw_str:
+                            hinglish_str = await asyncio.to_thread(devanagari_to_hinglish, raw_str)
+                            yield {"is_final": False, "text": hinglish_str, "confidence": 1.0}
         except websockets.exceptions.ConnectionClosed:
             logger.info("Upstream Prisma STT connection closed.")
         except Exception as exc:

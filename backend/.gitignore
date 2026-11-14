@@ -12,7 +12,7 @@ venv/
 .venv/
 env/
 
-# DhanvantariVoice generated runtime data
+# DocScribeAI generated runtime data
 backend/app/data/audio_cache/*.wav
 backend/app/data/pdf_prescriptions/*.pdf
 

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.services.gnani.timbre_service import timbre_service, DEFAULT_SAMPLE_RATE
 
 # Configure module-level logger
-logger = logging.getLogger("dhanvantari.tts_proxy")
+logger = logging.getLogger("docscribe.tts_proxy")
 
 # TTS router declaration
 router = APIRouter(prefix="/tts", tags=["TTS Proxy"])

@@ -21,7 +21,7 @@ from pydub import AudioSegment
 load_dotenv()
 
 # Initialize module logger
-logger = logging.getLogger("dhanvantari.timbre")
+logger = logging.getLogger("docscribe.timbre")
 
 # Upstream Gnani Timbre TTS endpoint and API key
 GNANI_TIMBRE_URL = os.getenv("GNANI_TIMBRE_URL", "https://api.vachana.ai/api/v1/tts/inference")

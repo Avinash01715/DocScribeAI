@@ -1,193 +1,179 @@
-import { AlertTriangle, CheckCircle2, Pill, ShieldCheck, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, AlertCircle, Check, Edit2, Trash2 } from 'lucide-react'
 import { MED_FIELDS, missingFields } from '../../utils/prescription'
 
 /**
- * MedicineCard.jsx - Structured Prescription Item (Minimalist Light Clinical)
+ * MedicineCard.jsx - Ruled Prescription Line Item
+ * Embodies an authentic clinical paper prescription line item (NOT a bulky card).
  */
 
-// Parse matrix frequency string (e.g. 1 - 1 - 1) into Morning, Noon, and Night dosage slots
+// Parse matrix frequency string (e.g. 1 - 0 - 1) into Morning, Noon, and Night dosage slots
 function parseFrequencySlots(freqStr) {
   if (!freqStr) return null
   const parts = String(freqStr).replace(/\s/g, '').split(/[-/]/)
   if (parts.length === 3) {
     return [
       { label: 'Morning', value: parts[0], active: parts[0] !== '0' },
-      { label: 'Noon', value: parts[1], active: parts[1] !== '0' },
-      { label: 'Night', value: parts[2], active: parts[2] !== '0' },
+      { label: 'Noon',    value: parts[1], active: parts[1] !== '0' },
+      { label: 'Night',   value: parts[2], active: parts[2] !== '0' },
     ]
   }
   return null
 }
 
-// Generate review reason message if medicine match confidence is below threshold
 function reviewReason(med) {
   if (!med.requires_review && (med.confidence_score ?? 100) >= 75) return null
-  const match = med.verified_match
-    ? `Match: "${med.verified_match}" (${Math.round(med.confidence_score || 0)}%). `
-    : 'Unconfirmed match. '
-  return `${match}Please verify.`
+  if (med.verified_match) {
+    return `Formulary match: ${med.verified_match}. Please confirm.`
+  }
+  return 'Unconfirmed medicine match. Please confirm.'
 }
 
-// Individual editable medicine card component with fuzzy formulary validation feedback
 export default function MedicineCard({ med, onChange, onRemove }) {
+  const [isEditing, setIsEditing] = useState(false)
+
   const missing = missingFields(med)
   const reason = reviewReason(med)
   const hasAlerts = Array.isArray(med.interaction_alerts) && med.interaction_alerts.length > 0
-  const isHighConfidence =
-    !med.requires_review && (med.confidence_score ?? 100) >= 75 && !hasAlerts
-  const isReviewRequired =
-    med.requires_review || (med.confidence_score ?? 100) < 75 || hasAlerts
+  const isReviewRequired = med.requires_review || (med.confidence_score ?? 100) < 75
 
   const freqSlots = parseFrequencySlots(med.frequency)
 
   return (
-    <div
-      className={`rounded-2xl border p-3.5 transition-colors ${
-        hasAlerts
-          ? 'border-rose-300 bg-rose-50/40'
-          : isReviewRequired
-          ? 'border-amber-300 bg-amber-50/40'
-          : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
-      }`}
-    >
-      {/* Header with medicine label and verification status badge */}
-      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
-        <div className="flex items-center gap-1.5">
-          <Pill size={15} className="text-teal-600" />
-          <span className="text-xs sm:text-sm font-bold text-slate-900">
-            {med.drug_name || 'New Medicine'}
-          </span>
+    <div className="py-3 border-b border-[#DCE6DF] animate-line-settle transition-colors">
+      {/* Top line: Medicine name, dosage, and quick action icons */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="font-serif text-base font-semibold text-[#17211B] break-words">
+              {med.drug_name || 'Unnamed medicine'}
+            </span>
+            {med.dosage && (
+              <span className="font-serif text-sm text-[#4A5D52] whitespace-nowrap">
+                {med.dosage}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Verification status badges */}
-        <div className="flex items-center gap-1.5">
-          {hasAlerts && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-100/90 px-2 py-0.5 text-[11px] font-bold text-rose-900">
-              <AlertTriangle size={12} className="text-rose-600" />
-              Safety Alert
-            </span>
-          )}
-
-          {isHighConfidence && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
-              <CheckCircle2 size={12} className="text-emerald-600" />
-              Verified ({Math.round(med.confidence_score || 100)}%)
-            </span>
-          )}
-
-          {!hasAlerts && isReviewRequired && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100/70 px-2 py-0.5 text-[11px] font-bold text-amber-900">
-              <AlertTriangle size={12} className="text-amber-700" />
-              Review ({Math.round(med.confidence_score || 0)}%)
-            </span>
-          )}
+        {/* Action buttons (44px min touch target) */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsEditing(!isEditing)}
+            title={isEditing ? 'Close editor' : 'Edit medicine'}
+            aria-label={isEditing ? 'Close editor' : 'Edit medicine'}
+            className="btn-icon min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-[#4A5D52] hover:text-[#17211B] hover:bg-[#F3F7F4]"
+          >
+            <Edit2 className="w-4 h-4" strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onRemove(med.uid)}
+            title="Remove medicine"
+            aria-label="Remove medicine"
+            className="btn-icon min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-[#4A5D52] hover:text-[#B91C1C] hover:bg-[#FEE2E2]"
+          >
+            <Trash2 className="w-4 h-4" strokeWidth={1.75} />
+          </button>
         </div>
       </div>
 
-      {/* Prominent Clinical Safety and DDI Warning Badge */}
+      {/* Second line: 3-slot dosage boxes + Meal timing + Duration */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+        {/* 3-slot dosage visual (Morning / Noon / Night) */}
+        <div className="flex items-center gap-1.5 font-mono">
+          {freqSlots ? (
+            freqSlots.map((slot, i) => (
+              <span
+                key={i}
+                className={`inline-flex items-center justify-center min-w-[28px] h-6 px-1.5 rounded text-[11px] font-medium border ${
+                  slot.active
+                    ? 'bg-[#14633F] text-white border-[#14633F]'
+                    : 'bg-white text-[#4A5D52] border-[#DCE6DF]'
+                }`}
+                title={`${slot.label}: ${slot.value}`}
+              >
+                {slot.value}
+              </span>
+            ))
+          ) : (
+            <span className="text-[#17211B] font-medium">
+              {med.frequency || 'As directed'}
+            </span>
+          )}
+        </div>
+
+        {/* Meal timing */}
+        <span className="text-xs text-[#17211B] bg-[#F3F7F4] border border-[#DCE6DF] px-2 py-0.5 rounded">
+          {med.timing || 'After meals'}
+        </span>
+
+        {/* Duration */}
+        <span className="text-xs text-[#4A5D52]">
+          {med.duration || '5 days'}
+        </span>
+      </div>
+
+      {/* Inline editing form fields (16px input font size prevents mobile Safari zoom) */}
+      {isEditing && (
+        <div className="mt-3 pt-3 border-t border-dashed border-[#DCE6DF] grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          {MED_FIELDS.map((f) => (
+            <label key={f.key} className={`block ${f.span || ''}`}>
+              <span className="block text-[11px] font-medium text-[#4A5D52] mb-1">
+                {f.label}
+              </span>
+              <input
+                type="text"
+                value={med[f.key] || ''}
+                onChange={(e) => onChange(med.uid, f.key, e.target.value)}
+                className="w-full bg-white border border-[#DCE6DF] rounded-lg px-2.5 py-2 text-base sm:text-xs text-[#17211B] focus:border-[#14633F] outline-none"
+              />
+            </label>
+          ))}
+        </div>
+      )}
+
+      {/* Inline Safety Warnings (Drug interaction or review needed) */}
       {hasAlerts && (
-        <div className="mb-2.5 space-y-1.5">
+        <div className="mt-2 space-y-1">
           {med.interaction_alerts.map((alert, idx) => (
             <div
               key={idx}
-              className="flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-100/80 px-2.5 py-1.5 text-xs font-bold text-rose-900"
+              className="flex items-center gap-2 p-2 rounded bg-[#FEE2E2] border border-[#FECACA] text-[#B91C1C] text-xs font-medium"
             >
-              <span className="shrink-0 text-xs">🔴</span>
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" strokeWidth={1.75} />
               <span>{alert}</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* Editable input fields for dosage, frequency, timing, and duration */}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {MED_FIELDS.map((f) => {
-          const empty = f.required && !String(med[f.key] || '').trim()
-          return (
-            <label key={f.key} className={`block ${f.span || ''}`}>
-              <span className="mb-0.5 block text-[11px] font-bold text-slate-700">
-                {f.label}
-              </span>
-              <input
-                value={med[f.key] || ''}
-                onChange={(e) => onChange(med.uid, f.key, e.target.value)}
-                placeholder={empty ? 'Required' : ''}
-                className={`w-full rounded-xl border bg-slate-50/70 px-2.5 py-1.5 text-xs font-semibold text-slate-900 outline-none transition placeholder:text-amber-700 focus:border-teal-600 focus:bg-white ${
-                  empty ? 'border-amber-400 bg-amber-50/30' : 'border-slate-300'
-                }`}
-              />
-            </label>
-          )
-        })}
-      </div>
-
-      {/* Visual representation of morning, noon, and night medication doses */}
-      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-bold text-slate-700">Schedule:</span>
-          {freqSlots ? (
-            <div className="flex items-center gap-1 font-mono text-[11px]">
-              {freqSlots.map((slot, i) => (
-                <span
-                  key={i}
-                  className={`rounded-md px-1.5 py-0.5 font-bold ${
-                    slot.active
-                      ? 'bg-teal-100 text-teal-900 border border-teal-300'
-                      : 'bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {slot.label}: {slot.value}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <span className="font-mono text-slate-800 font-bold">
-              {med.frequency || 'Custom'}
-            </span>
-          )}
-        </div>
-
-        <span className="text-[11px] font-medium text-slate-700">
-          <strong className="font-bold text-slate-900">{med.timing || 'After meals'}</strong> • <strong className="font-bold text-slate-900">{med.duration || '3 days'}</strong>
-        </span>
-      </div>
-
-      {/* Review warning banner with quick-confirmation button */}
-      {reason && (
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 rounded-xl border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-900">
-          <div className="flex items-center gap-1.5 font-semibold text-[11px]">
-            <AlertTriangle size={13} className="shrink-0 text-amber-700" />
+      {!hasAlerts && isReviewRequired && reason && (
+        <div className="mt-2 flex items-center justify-between gap-2 p-2 rounded bg-[#FEF3C7] border border-[#FDE68A] text-[#B45309] text-xs">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" strokeWidth={1.75} />
             <span>{reason}</span>
           </div>
           <button
+            type="button"
             onClick={() => {
               onChange(med.uid, 'requires_review', false)
               onChange(med.uid, 'confidence_score', 100)
             }}
-            className="flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-bold text-amber-900 hover:bg-amber-100 shadow-2xs"
+            className="btn-secondary min-h-[36px] px-3 py-1 rounded-lg bg-white border border-[#FDE68A] text-[#B45309] font-medium flex items-center gap-1.5"
           >
-            <ShieldCheck size={12} className="text-amber-700" /> Confirm
+            <Check className="w-3.5 h-3.5" />
+            <span>Confirm</span>
           </button>
         </div>
       )}
 
-      {/* Warning for unpopulated required fields */}
       {missing.length > 0 && (
-        <p className="mt-1 text-[11px] font-bold text-amber-800">
-          Missing: {missing.join(', ')}
+        <p className="mt-1.5 text-[11px] text-[#B45309]">
+          Missing details: {missing.join(', ')}
         </p>
       )}
-
-      {/* Button to remove this medication item */}
-      <div className="mt-2 flex justify-end">
-        <button
-          onClick={() => onRemove(med.uid)}
-          className="flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-rose-600 transition"
-          aria-label={`${med.drug_name || 'Medicine'} remove`}
-        >
-          <Trash2 size={12} /> Remove
-        </button>
-      </div>
     </div>
   )
 }

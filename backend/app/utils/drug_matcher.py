@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 from rapidfuzz import process, fuzz
 
 # Initialize module logger
-logger = logging.getLogger("dhanvantari.drug_matcher")
+logger = logging.getLogger("docscribe.drug_matcher")
 
 # Path to master drug formulary catalog
 BASE_DIR = Path(__file__).resolve().parent.parent

@@ -19,7 +19,7 @@ from app.services.gnani.timbre_service import (
 from app.utils.pdf_generator import generate_prescription_pdf
 from app.services.history_service import history_repo
 
-logger = logging.getLogger("dhanvantari.whatsapp")
+logger = logging.getLogger("docscribe.whatsapp")
 
 # Router for WhatsApp message compilation and dispatch
 router = APIRouter(tags=["WhatsApp"])
@@ -178,7 +178,7 @@ async def dispatch_prescription(payload: WhatsAppSendRequest, request: Request, 
             diagnosis = getattr(clinical_findings, "diagnosis", "Clinical Assessment")
 
             text_lines = [
-                "🩺 *DHANVANTARI CLINIC PRESCRIPTION*",
+                "🩺 *DOCSCRIBEAI CLINIC PRESCRIPTION*",
                 f"Patient: *{patient_name}*",
                 f"Diagnosis: *{diagnosis}*",
                 "",

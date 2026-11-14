@@ -28,7 +28,7 @@ from app.services.gnani.timbre_service import (
 from app.services.gnani.evon_service import evon_service
 
 # Initialize service logger
-logger = logging.getLogger("dhanvantari.orchestrator")
+logger = logging.getLogger("docscribe.orchestrator")
 
 # Server base URL for building absolute resource links
 SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://127.0.0.1:8000")
