@@ -102,9 +102,17 @@ export default function Consultation() {
     const cleanPhone = phone.replace(/\D/g, '')
     const targetUrl = `${API_BASE_URL}/api/v1/whatsapp/dispatch`.replace(/([^:]\/)\/+/g, '$1')
     console.log('[DocScribeAI] Dispatching WhatsApp payload to:', targetUrl)
+    // System Design: Attach deterministic idempotency key to prevent duplicate dispatches
+    const patientNameClean = (prescription?.patient_info?.name || 'patient').replace(/\s+/g, '_')
+    const idempotencyKey = 
+x___.toLowerCase()
+
     const res = await fetch(targetUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': idempotencyKey,
+      },
       body: JSON.stringify({
         phone_number: cleanPhone,
         prescription_data: prescription,
