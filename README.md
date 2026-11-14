@@ -173,11 +173,11 @@ flowchart TD
     B3 -->|ABDM PDF| D2
     C3 -->|Audio MP3| D2
 
-    %% Professional Styling
-    style Client fill:#f8fafc,stroke:#64748b,stroke-width:1.5px
-    style Server fill:#f0f9ff,stroke:#0284c7,stroke-width:1.5px
-    style AI fill:#faf5ff,stroke:#9333ea,stroke-width:1.5px
-    style Output fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px
+    %% Professional Theme-Adaptive Styling (Transparent fill for seamless GitHub Dark & Light themes)
+    style Client fill:none,stroke:#64748b,stroke-width:2px
+    style Server fill:none,stroke:#0284c7,stroke-width:2px
+    style AI fill:none,stroke:#9333ea,stroke-width:2px
+    style Output fill:none,stroke:#16a34a,stroke-width:2px
 ```
 
 ---
