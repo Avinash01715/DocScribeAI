@@ -43,7 +43,6 @@ export default function useWebSocket({
 } = {}) {
   // ---- 1. Specification Managed States ----
   const [connectionStatus, setConnectionStatus] = useState('DISCONNECTED')
-  const [interimTranscript, setInterimTranscript] = useState('')
   const [confirmedTranscript, setConfirmedTranscript] = useState('')
   const [extractedPrescription, setExtractedPrescription] = useState(null)
   const [pipelineStatus, setPipelineStatus] = useState('')
@@ -70,6 +69,19 @@ export default function useWebSocket({
   const explicitlyClosedRef = useRef(false)
   const onMessageRef = useRef(onMessage)
   const connectRef = useRef(null)
+
+  // Isolated interim speech subscriber listeners (bypasses full tree re-renders)
+  const interimTranscriptRef = useRef('')
+  const interimSubscribersRef = useRef(new Set())
+
+  const subscribeInterim = useCallback((cb) => {
+    if (typeof cb !== 'function') return () => {}
+    interimSubscribersRef.current.add(cb)
+    cb(interimTranscriptRef.current)
+    return () => {
+      interimSubscribersRef.current.delete(cb)
+    }
+  }, [])
 
   // Keep latest message callback without causing reconnect re-triggers
   useEffect(() => {
@@ -139,6 +151,14 @@ export default function useWebSocket({
           }
           const item = MOCK_TRANSCRIPT[i]
           setConfirmedTranscript((prev) => (prev ? `${prev} ${item.text}` : item.text))
+          interimTranscriptRef.current = ''
+          interimSubscribersRef.current.forEach((cb) => {
+            try {
+              cb('')
+            } catch (err) {
+              console.error('Interim subscriber error:', err)
+            }
+          })
           onMessageRef.current?.({ type: 'TRANSCRIPT', is_final: true, ...item })
           i += 1
         }, 3000)
@@ -173,14 +193,28 @@ export default function useWebSocket({
           if (msg.type === 'TRANSCRIPT_UPDATE' || msg.type === 'TRANSCRIPT') {
             const token = msg.text || msg.interim || ''
             if (msg.is_final) {
-              setInterimTranscript('')
+              interimTranscriptRef.current = ''
+              interimSubscribersRef.current.forEach((cb) => {
+                try {
+                  cb('')
+                } catch (err) {
+                  console.error('Interim subscriber error:', err)
+                }
+              })
               if (msg.transcript) {
                 setConfirmedTranscript(msg.transcript)
               } else if (token) {
                 setConfirmedTranscript((prev) => (prev ? `${prev} ${token}` : token))
               }
             } else {
-              setInterimTranscript(token)
+              interimTranscriptRef.current = token
+              interimSubscribersRef.current.forEach((cb) => {
+                try {
+                  cb(token)
+                } catch (err) {
+                  console.error('Interim subscriber error:', err)
+                }
+              })
             }
           }
 
@@ -304,7 +338,14 @@ export default function useWebSocket({
   // Send RESET action frame to flush consultation buffer on backend and clear local state
   const resetSession = useCallback(() => {
     sequenceNumberRef.current = 0
-    setInterimTranscript('')
+    interimTranscriptRef.current = ''
+    interimSubscribersRef.current.forEach((cb) => {
+      try {
+        cb('')
+      } catch (err) {
+        console.error('Interim subscriber error:', err)
+      }
+    })
     setConfirmedTranscript('')
     setExtractedPrescription(null)
     setPipelineStatus('')
@@ -321,13 +362,17 @@ export default function useWebSocket({
   return {
     // Managed States as per Specification
     connectionStatus,
-    interimTranscript,
+    get interimTranscript() {
+      return interimTranscriptRef.current
+    },
     confirmedTranscript,
     extractedPrescription,
     pipelineStatus,
     error,
     // Backward Compatibility aliases
     status: legacyStatus,
+    // Fast subscriber for LiveTranscript (zero parent re-renders)
+    subscribeInterim,
     // Action Handlers
     sendAudioChunk,
     triggerProcess,

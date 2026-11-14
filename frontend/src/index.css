@@ -1,53 +1,163 @@
 @import "tailwindcss";
 
 /**
- * DocScribeAI – Minimalist Light Clinical Theme
+ * DocScribe - Bright Clinical Prescription Pad Design System
  *
- * Strict High-Contrast WCAG AAA Readability Standards:
- * - Canvas Background:   #f1f5f9 (slate-100 soft clinical background)
- * - Card / Panel Surface:#ffffff (pure crisp white)
- * - Border Dividers:     #cbd5e1 (slate-300 defined, visible borders)
- * - Text Primary:        #0f172a (slate-900 jet ink - 100% readable)
- * - Text Secondary:      #334155 (slate-700 dark body text)
- * - Text Labels/Muted:   #475569 (slate-600 high-contrast secondary labels)
- * - Clinical Teal Brand: #0d9488 (teal-600 primary)
- * - Clinical Teal Hover: #0f766e (teal-700 hover)
- * - Brand Accent Tint:   #f0fdfa (teal-50 soft accent)
+ * Palette:
+ * - Page Background:       #FFFFFF
+ * - Panels & Slim Sidebar: #F3F7F4
+ * - Borders & Ruled Lines: #DCE6DF
+ * - Primary Green:         #14633F (Hover/Pressed: #0D4A2F)
+ * - Primary Text:          #17211B
+ * - Muted Secondary Text:  #4A5D52
+ * - Alert Amber:           #B45309 (Bg: #FEF3C7, Border: #FDE68A)
+ * - Alert Red:             #B91C1C (Bg: #FEE2E2, Border: #FECACA)
  */
 @theme {
-  --color-ink:          #f1f5f9;
-  --color-surface:      #ffffff;
-  --color-panel:        #ffffff;
-  --color-border:       #cbd5e1;
-  --color-brand:        #0d9488;
-  --color-brand-hover:  #0f766e;
-  --color-brand-dark:   #115e59;
-  --color-text:         #0f172a;
-  --color-muted:        #475569;
-  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Instrument Sans', 'Noto Sans Devanagari', 'Noto Sans Tamil', 'Noto Sans Telugu', 'Noto Sans Bengali', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Source Serif 4', Georgia, serif;
   --font-mono: 'JetBrains Mono', monospace;
+
+  --color-page:             #ffffff;
+  --color-panel:            #f3f7f4;
+  --color-border:           #dce6df;
+  --color-brand:            #14633f;
+  --color-brand-hover:      #0d4a2f;
+  --color-text:             #17211b;
+  --color-muted:            #4a5d52;
+
+  --color-warning:          #b45309;
+  --color-warning-bg:       #fef3c7;
+  --color-warning-border:   #fde68a;
+
+  --color-error:            #b91c1c;
+  --color-error-bg:         #fee2e2;
+  --color-error-border:     #fecaca;
 }
 
 body {
-  background-color: #f1f5f9;
-  color: #0f172a;
+  background-color: #ffffff;
+  color: #17211b;
   font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Crisp light clinical scrollbars */
+/* Accessible focus visible outlines */
+:focus-visible {
+  outline: 2px solid #14633f;
+  outline-offset: 2px;
+}
+
+/* Clean quiet clinical paper scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #ffffff;
 }
 ::-webkit-scrollbar-thumb {
-  background: #94a3b8;
+  background: #dce6df;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #cbd5e1;
+}
+
+/* Subtle motion discipline: Word stream appear & Rx line settle */
+@keyframes wordAppear {
+  from {
+    opacity: 0;
+    transform: translateY(1.5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lineSettle {
+  from {
+    opacity: 0;
+    background-color: #f3f7f4;
+  }
+  to {
+    opacity: 1;
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-word-appear {
+    display: inline-block;
+    animation: wordAppear 0.16s ease-out forwards;
+  }
+  .animate-line-settle {
+    animation: lineSettle 0.3s ease-out forwards;
+  }
+}
+
+/* Safe area padding utilities */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+}
+
+/* Tactile button micro-motion and light sheen */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(20, 99, 63, 0.12);
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, background-color 0.15s ease-out;
+}
+
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 4px 12px rgba(20, 99, 63, 0.2);
+  }
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.12);
+}
+
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 20%, rgba(255, 255, 255, 0.16) 50%, transparent 80%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+
+.btn-primary:hover:not(:disabled)::after {
+  transform: translateX(100%);
+}
+
+.btn-secondary {
+  transition: transform 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+@media (hover: hover) {
+  .btn-secondary:hover:not(:disabled) {
+    transform: translateY(-0.5px);
+  }
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+  background-color: #e7efea;
+}
+
+.btn-icon {
+  transition: transform 0.15s ease-out, background-color 0.15s ease-out;
+}
+
+.btn-icon:active:not(:disabled) {
+  transform: scale(0.9);
 }

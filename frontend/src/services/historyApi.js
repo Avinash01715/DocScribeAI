@@ -57,7 +57,7 @@ export function buildWhatsAppShareUrl(record) {
   const { label: languageLabel } = getLanguageMeta(record.language)
 
   const lines = [
-    `🩺 *DHANVANTARI CLINIC PRESCRIPTION*`,
+    `🩺 *DOCSCRIBEAI CLINIC PRESCRIPTION*`,
     `Patient: *${patientName}*`,
     `Diagnosis: *${diagnosis}*`,
     ``,
@@ -86,7 +86,7 @@ export function buildSharePayload(record) {
   const { label: languageLabel } = getLanguageMeta(record.language)
 
   const textLines = [
-    `Dhanvantari Prescription for ${patientName}`,
+    `DocScribeAI Prescription for ${patientName}`,
     `Diagnosis: ${diagnosis}`,
     pdfFullUrl ? `Prescription PDF: ${pdfFullUrl}` : null,
     audioFullUrl ? `🔊 Voice Instructions (${languageLabel}): ${audioFullUrl}` : null,

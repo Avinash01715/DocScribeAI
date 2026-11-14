@@ -1,92 +1,99 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard,
   Mic,
+  LayoutDashboard,
   FileText,
-  Settings,
-  User
+  User,
 } from 'lucide-react'
+import BrandLogo from '../common/BrandLogo'
 
-// Primary desktop sidebar navigation link definitions
-const sideItems = [
-  { label: 'Dashboard',    icon: LayoutDashboard, path: '/' },
-  { label: 'Consultation', icon: Mic,              path: '/consultation' },
-  { label: 'Prescriptions',icon: FileText,         path: '/prescriptions' },
-  { label: 'Settings',     icon: Settings,         path: '/settings' },
+// Primary navigation link definitions
+const navItems = [
+  { label: 'Consultation',           icon: Mic,              path: '/consultation' },
+  { label: 'Dashboard',              icon: LayoutDashboard, path: '/' },
+  { label: 'Prescription history',   icon: FileText,         path: '/prescriptions' },
+  { label: 'Doctor profile',         icon: User,             path: '/profile' },
 ]
 
-// Mobile bottom navigation bar link definitions
-const bottomItems = [
-  { label: 'Dashboard',    icon: LayoutDashboard, path: '/' },
-  { label: 'Consultation', icon: Mic,              path: '/consultation' },
-  { label: 'Prescriptions',icon: FileText,         path: '/prescriptions' },
-  { label: 'Profile',      icon: User,             path: '/profile' },
-]
-
-// Desktop fixed sidebar component
+// Desktop slim icon-only sidebar (w-16, #F3F7F4)
 export default function Sidebar() {
   return (
-    <aside className="hidden w-64 shrink-0 fixed top-14 bottom-0 left-0 z-30 md:flex md:flex-col md:justify-between border-r border-slate-200 bg-white p-4 shadow-2xs">
-      {/* Primary navigation menu */}
-      <div>
-        <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-          Menu
-        </p>
-        <nav className="space-y-1">
-          {sideItems.map(({ label, icon: Icon, path }) => (
+    <aside
+      aria-label="Application navigation"
+      className="hidden md:flex w-16 shrink-0 fixed top-0 bottom-0 left-0 z-30 flex-col justify-between items-center py-4 bg-[#F3F7F4] border-r border-[#DCE6DF]"
+    >
+      {/* Top brand icon */}
+      <div className="flex flex-col items-center w-full px-2">
+        <NavLink
+          to="/"
+          title="DocScribeAI Home"
+          aria-label="DocScribeAI home"
+          className="group min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl focus-visible:ring-2 focus-visible:ring-[#14633F] border-b border-[#DCE6DF] pb-3 mb-3 w-full"
+        >
+          <BrandLogo collapsed />
+        </NavLink>
+
+        {/* Navigation icon items */}
+        <nav className="flex flex-col items-center gap-2 w-full">
+          {navItems.map(({ label, icon: Icon, path }) => (
             <NavLink
               key={label}
               to={path}
               end={path === '/'}
+              title={label}
+              aria-label={label}
               className={({ isActive }) =>
-                `flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm transition-all duration-150 ${
+                `w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg transition-colors ${
                   isActive
-                    ? 'bg-teal-50 text-teal-800 font-bold border-l-4 border-teal-600 shadow-2xs'
-                    : 'text-slate-700 font-medium hover:bg-slate-50 hover:text-slate-900'
+                    ? 'bg-white text-[#14633F] border border-[#DCE6DF]'
+                    : 'text-[#4A5D52] hover:text-[#17211B] hover:bg-white'
                 }`
               }
             >
-              <Icon className="h-4.5 w-4.5 shrink-0" />
-              <span>{label}</span>
+              <Icon className="w-5 h-5" strokeWidth={1.75} />
             </NavLink>
           ))}
         </nav>
       </div>
 
-      {/* Clinician badge at bottom of sidebar */}
-      <div className="pt-3 border-t border-slate-100">
-        <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-600 font-bold text-white text-xs">
-            DR
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-bold text-slate-900">Dr. Practitioner</p>
-            <p className="truncate text-[10px] font-semibold text-slate-500">MBBS, MD • OPD 1</p>
-          </div>
-        </div>
+      {/* Bottom clinician indicator */}
+      <div className="flex flex-col items-center pb-1">
+        <NavLink
+          to="/profile"
+          title="Dr. Practitioner"
+          aria-label="Dr. Practitioner profile"
+          className="w-10 h-10 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-white border border-[#DCE6DF] text-[#14633F] text-xs font-medium"
+        >
+          DR
+        </NavLink>
       </div>
     </aside>
   )
 }
 
-// Mobile bottom navigation component for smaller screen viewports
+// Mobile bottom navigation bar (< 768px)
 export function BottomNav() {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-slate-200 bg-white py-2 shadow-md md:hidden">
-      {bottomItems.map(({ label, icon: Icon, path }) => (
+    <nav
+      aria-label="Mobile navigation"
+      className="md:hidden fixed inset-x-0 bottom-0 z-40 h-16 bg-[#F3F7F4] border-t border-[#DCE6DF] pb-safe flex items-center justify-between px-1 shadow-[0_-2px_10px_rgba(0,0,0,0.03)]"
+    >
+      {navItems.map(({ label, icon: Icon, path }) => (
         <NavLink
           key={label}
           to={path}
           end={path === '/'}
           aria-label={label}
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 text-[10px] font-medium transition ${
-              isActive ? 'text-teal-700 font-bold' : 'text-slate-500 hover:text-slate-900'
+            `flex-1 min-h-[44px] py-1 flex flex-col items-center justify-center gap-0.5 text-[11px] rounded-lg transition-all duration-150 active:scale-95 ${
+              isActive
+                ? 'text-[#14633F] font-semibold bg-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]'
+                : 'text-[#4A5D52] hover:text-[#17211B]'
             }`
           }
         >
-          <Icon className="h-4.5 w-4.5" />
-          <span>{label}</span>
+          <Icon className="w-5 h-5 shrink-0" strokeWidth={1.75} />
+          <span className="truncate max-w-[72px] tracking-tight">{label.split(' ')[0]}</span>
         </NavLink>
       ))}
     </nav>
