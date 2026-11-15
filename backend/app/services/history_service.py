@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-logger = logging.getLogger("dhanvantari.history")
+logger = logging.getLogger("docscribe.history")
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "consultations.db"
 

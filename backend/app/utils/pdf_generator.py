@@ -37,7 +37,7 @@ class ClinicalPrescriptionPDF(FPDF):
         self.rect(0, 0, 210, 25, 'F')
         self.set_text_color(255, 255, 255)
         self.set_font(self.font_name, "B", 15)
-        self.cell(0, 10, "DHANVANTARI CLINIC & OPD CARE", ln=True, align="C")
+        self.cell(0, 10, "DOCSCRIBEAI CLINIC & OPD CARE", ln=True, align="C")
         self.set_font(self.font_name, "", 9)
         self.cell(0, 5, "Ayushman Bharat Digital Mission (ABDM) Compliant Partner", ln=True, align="C")
         self.ln(12)
@@ -47,7 +47,7 @@ class ClinicalPrescriptionPDF(FPDF):
         self.set_y(-20)
         self.set_font(self.font_name, "I", 8)
         self.set_text_color(100, 116, 139)
-        self.cell(0, 5, "Digitally transcribed via DhanvantariVoice Ambient Copilot - Validated by Clinician", ln=True, align="C")
+        self.cell(0, 5, "Digitally transcribed via DocScribeAI Ambient Copilot - Validated by Clinician", ln=True, align="C")
         self.cell(0, 5, f"Page {self.page_no()}", align="C")
 
 

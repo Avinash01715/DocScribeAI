@@ -1,32 +1,34 @@
-import { CheckCircle2, FileText, Plus, ShieldCheck, Thermometer, User } from 'lucide-react'
+import { Plus, Check, ShieldCheck } from 'lucide-react'
 import MedicineCard from './MedicineCard'
 import { missingFields, evaluateClinicalSafety } from '../../utils/prescription'
 
 /**
- * PrescriptionReview.jsx - Structured Clinical Summary & Formulary Editor (Minimalist Light Clinical)
+ * PrescriptionReview.jsx - The Rx Sheet (Paper-Like Prescription Pad)
+ * Font: Source Serif 4 on clinical details, diagnosis, and medicines.
  */
 
-// Shared Tailwind style classes for form inputs
-const inputCls =
-  'w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600/20'
+// Ruled paper input style
+const paperInputCls =
+  'w-full bg-transparent border-b border-[#DCE6DF] px-1 py-1 font-serif text-base text-[#17211B] focus:border-[#14633F] outline-none transition-colors'
 
-// Convert array of string items into newline-separated text for textarea display
 const toLines = (arr) => (arr || []).join('\n')
-// Convert newline-separated textarea text into array of individual strings
 const fromLines = (text) => text.split('\n')
 
-// Complete prescription review and editing container for clinician verification and approval
-export default function PrescriptionReview({ data, onChange, approved, onApprove }) {
+export default function PrescriptionReview({
+  data,
+  onChange,
+  approved,
+  onApprove,
+  onSendWhatsApp,
+}) {
   const temperature =
     data.patient_info?.temperature ||
     data.patient_info?.vitals?.temperature ||
-    '101.4°F'
+    '98.6°F'
 
-  // Update patient demographic or symptom field in prescription state
   const setPatient = (patch) =>
     onChange({ ...data, patient_info: { ...data.patient_info, ...patch } })
 
-  // Update specific property on an individual medication item and re-evaluate safety
   const setMedicine = (uid, key, value) => {
     const updated = data.prescription.map((m) => {
       if (m.uid !== uid) return m
@@ -43,7 +45,6 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
     })
   }
 
-  // Remove a medication entry by its unique identifier and re-evaluate safety
   const removeMedicine = (uid) => {
     const filtered = data.prescription.filter((m) => m.uid !== uid)
     onChange({
@@ -52,7 +53,6 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
     })
   }
 
-  // Add a blank medication entry with default dosage and schedule
   const addMedicine = () => {
     const nextList = [
       ...data.prescription,
@@ -62,7 +62,7 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
         dosage: '',
         frequency: '1 - 0 - 1',
         timing: 'After meals',
-        duration: '3 days',
+        duration: '5 days',
         verified_match: null,
         confidence_score: 100,
         requires_review: false,
@@ -76,7 +76,6 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
     })
   }
 
-  // Validation metrics to control doctor approval eligibility
   const missing = data.prescription.flatMap((m) => missingFields(m))
   const pendingReview = data.prescription.filter(
     (m) => m.requires_review || (m.confidence_score ?? 100) < 75
@@ -84,160 +83,180 @@ export default function PrescriptionReview({ data, onChange, approved, onApprove
   const canApprove =
     data.prescription.length > 0 && missing.length === 0 && pendingReview === 0
 
+  const handlePrimaryAction = () => {
+    if (!approved) {
+      onApprove?.()
+    }
+    onSendWhatsApp?.()
+  }
+
+  const todayStr = new Intl.DateTimeFormat('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date())
+
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
-      {/* Header section with review badge */}
-      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-        <h2 className="text-base font-bold text-slate-900 tracking-tight">
-          Prescription Draft
-        </h2>
-        <span className="flex items-center gap-1 text-xs text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-full font-bold">
-          <FileText size={12} className="text-teal-600" /> Ready for Review
-        </span>
-      </div>
-
-      {/* 1. Patient Demographics, Vitals, and Chief Complaints */}
-      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4 space-y-3">
-        <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">
-          <User size={13} className="text-teal-600" /> Patient Info & Vitals
-        </h3>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          {/* Patient name input */}
-          <label className="block">
-            <span className="mb-1 block text-xs font-bold text-slate-700">
-              Patient Name
+    <div className="bg-white min-h-full flex flex-col justify-between p-6 sm:p-8">
+      {/* Top Rx Paper Header */}
+      <div>
+        <div className="flex items-start justify-between border-b-2 border-[#17211B] pb-3 mb-5">
+          <div className="flex items-baseline gap-3">
+            <span className="font-serif text-3xl font-semibold text-[#14633F] italic select-none">
+              ℞
             </span>
-            <input
-              value={data.patient_info?.name || ''}
-              onChange={(e) => setPatient({ name: e.target.value })}
-              className={inputCls}
-              placeholder="e.g. Ramesh Kumar"
-            />
-          </label>
-
-          {/* Vitals temperature input */}
-          <label className="block">
-            <span className="mb-1 flex items-center gap-1 text-xs font-bold text-slate-700">
-              <Thermometer size={12} className="text-amber-600" /> Temperature
-            </span>
-            <input
-              value={temperature}
-              onChange={(e) => setPatient({ temperature: e.target.value })}
-              className={`${inputCls} border-amber-300 bg-amber-50/40 text-amber-900 font-mono font-bold`}
-              placeholder="101.4°F"
-            />
-          </label>
+            <div>
+              <h2 className="font-serif text-base font-semibold text-[#17211B] tracking-tight">
+                DocScribeAI Health Center
+              </h2>
+              <p className="text-xs text-[#4A5D52]">Outpatient clinical prescription</p>
+            </div>
+          </div>
+          <div className="text-right text-xs text-[#4A5D52]">
+            <span>{todayStr}</span>
+          </div>
         </div>
 
-        {/* Multi-line symptoms and chief complaints textarea */}
-        <label className="block">
-          <span className="mb-1 block text-xs font-bold text-slate-700">
-            Chief Complaints
+        {/* 1. Patient Demographics & Vitals (clean 1-column on mobile, 3-column on desktop) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3 pb-4 border-b border-[#DCE6DF] text-sm">
+          <div className="col-span-1 sm:col-span-2 md:col-span-1">
+            <span className="block text-xs font-medium text-[#4A5D52]">
+              Patient name
+            </span>
+            <input
+              type="text"
+              value={data.patient_info?.name || ''}
+              onChange={(e) => setPatient({ name: e.target.value })}
+              placeholder="Name"
+              className={paperInputCls}
+            />
+          </div>
+
+          <div>
+            <span className="block text-xs font-medium text-[#4A5D52]">
+              Temperature
+            </span>
+            <input
+              type="text"
+              value={temperature}
+              onChange={(e) => setPatient({ temperature: e.target.value })}
+              placeholder="98.6°F"
+              className={paperInputCls}
+            />
+          </div>
+
+          <div>
+            <span className="block text-xs font-medium text-[#4A5D52]">
+              Symptoms
+            </span>
+            <input
+              type="text"
+              value={toLines(data.patient_info?.chief_complaints)}
+              onChange={(e) => setPatient({ chief_complaints: fromLines(e.target.value) })}
+              placeholder="Fever, cough"
+              className={paperInputCls}
+            />
+          </div>
+        </div>
+
+        {/* 2. Provisional Diagnosis */}
+        <div className="py-4 border-b border-[#DCE6DF]">
+          <span className="block text-xs font-medium text-[#4A5D52] mb-1">
+            Provisional diagnosis
+          </span>
+          <input
+            type="text"
+            value={data.clinical_findings?.diagnosis || ''}
+            onChange={(e) =>
+              onChange({
+                ...data,
+                clinical_findings: {
+                  ...data.clinical_findings,
+                  diagnosis: e.target.value,
+                },
+              })
+            }
+            placeholder="Diagnosis (e.g., Acute bronchitis)"
+            className="w-full bg-transparent border-b border-transparent hover:border-[#DCE6DF] focus:border-[#14633F] py-1 font-serif text-lg font-semibold text-[#17211B] outline-none transition-colors"
+          />
+        </div>
+
+        {/* 3. Prescribed Medicines as Ruled Lines */}
+        <div className="py-4">
+          <div className="flex items-center justify-between pb-2 mb-2">
+            <h3 className="font-serif text-sm font-semibold text-[#17211B]">
+              Rx Medicines ({data.prescription.length})
+            </h3>
+            <button
+              type="button"
+              onClick={addMedicine}
+              className="btn-secondary min-h-[44px] px-3 rounded-lg text-xs font-semibold text-[#14633F] flex items-center gap-1.5 border border-[#DCE6DF] bg-white hover:bg-[#F3F7F4]"
+            >
+              <Plus className="w-3.5 h-3.5" strokeWidth={1.75} />
+              <span>Add medicine</span>
+            </button>
+          </div>
+
+          <div>
+            {data.prescription.length === 0 ? (
+              <p className="py-6 text-sm text-[#4A5D52] italic text-center">
+                Prescribed medicines will appear as the consultation proceeds.
+              </p>
+            ) : (
+              data.prescription.map((med) => (
+                <MedicineCard
+                  key={med.uid}
+                  med={med}
+                  onChange={setMedicine}
+                  onRemove={removeMedicine}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 4. Advice & Instructions */}
+        <div className="py-4 border-t border-[#DCE6DF]">
+          <span className="block text-xs font-medium text-[#4A5D52] mb-1">
+            Advice and instructions
           </span>
           <textarea
             rows={2}
-            value={toLines(data.patient_info?.chief_complaints)}
-            onChange={(e) => setPatient({ chief_complaints: fromLines(e.target.value) })}
-            className={inputCls}
-            placeholder="High fever&#10;Throat pain"
+            value={data.advice || ''}
+            onChange={(e) => onChange({ ...data, advice: e.target.value })}
+            placeholder="Drink plenty of fluids, rest adequately, complete full course."
+            className="w-full bg-transparent border border-[#DCE6DF] rounded-lg p-2.5 font-serif text-base sm:text-sm text-[#17211B] focus:border-[#14633F] outline-none resize-none transition-colors"
           />
-        </label>
+        </div>
       </div>
 
-      {/* 2. Provisional Diagnosis input box */}
-      <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-3 sm:p-4">
-        <span className="block text-xs font-bold uppercase tracking-wider text-teal-800 mb-1.5">
-          Diagnosis
-        </span>
-        <input
-          value={data.clinical_findings?.diagnosis || ''}
-          onChange={(e) =>
-            onChange({
-              ...data,
-              clinical_findings: {
-                ...data.clinical_findings,
-                diagnosis: e.target.value,
-              },
-            })
-          }
-          placeholder="Diagnosis (e.g. Acute Upper Respiratory Tract Infection)"
-          className="w-full rounded-xl border border-teal-300 bg-white px-3 py-2 text-xs sm:text-sm font-bold text-slate-900 outline-none focus:border-teal-600"
-        />
-      </div>
+      {/* 5. Bottom Approval & Send to WhatsApp Primary Action */}
+      <div className="pt-6 border-t border-[#DCE6DF]">
+        <div className="flex flex-col gap-2">
+          {approved ? (
+            <div className="flex items-center justify-center gap-1.5 text-xs text-[#14633F] font-medium py-1">
+              <Check className="w-4 h-4" />
+              <span>Prescription approved by doctor</span>
+            </div>
+          ) : !canApprove ? (
+            <p className="text-xs text-[#B45309] text-center font-medium">
+              {pendingReview > 0
+                ? `${pendingReview} medicine match needs confirmation.`
+                : 'Complete required medicine fields before sending.'}
+            </p>
+          ) : null}
 
-      {/* 3. Prescribed Medications list with add medicine trigger */}
-      <div>
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-            Medicines ({data.prescription.length})
-          </h3>
           <button
-            onClick={addMedicine}
-            className="flex items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 py-1 text-xs font-bold text-teal-800 hover:bg-teal-100 transition shadow-2xs"
+            type="button"
+            onClick={handlePrimaryAction}
+            disabled={!canApprove && !approved}
+            className="btn-primary w-full min-h-[48px] rounded-xl bg-[#14633F] text-white hover:bg-[#0D4A2F] font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Plus size={13} className="text-teal-600" /> Add Medicine
+            <ShieldCheck className="w-4 h-4" strokeWidth={1.75} />
+            <span>Approve and send to WhatsApp</span>
           </button>
         </div>
-
-        <div className="space-y-2.5">
-          {data.prescription.length === 0 && (
-            <p className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-xs font-semibold text-slate-500">
-              No medicines yet. Click "Add Medicine".
-            </p>
-          )}
-          {data.prescription.map((m) => (
-            <MedicineCard
-              key={m.uid}
-              med={m}
-              onChange={setMedicine}
-              onRemove={removeMedicine}
-            />
-          ))}
-        </div>
       </div>
-
-      {/* 4. Lifestyle and dietary advice textarea */}
-      <label className="block">
-        <span className="mb-1 block text-xs font-bold text-slate-700">
-          Advice & Instructions
-        </span>
-        <textarea
-          rows={2}
-          value={data.advice || ''}
-          onChange={(e) => onChange({ ...data, advice: e.target.value })}
-          className={inputCls}
-          placeholder="Drink warm water, complete the course."
-        />
-      </label>
-
-      {/* 5. Doctor approval action button and validation warnings */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-        {approved ? (
-          <div className="flex items-center gap-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 rounded-xl px-3 py-2">
-            <CheckCircle2 size={15} className="text-emerald-600" />
-            Approved by Doctor
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={onApprove}
-              disabled={!canApprove}
-              className="flex items-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-700 disabled:opacity-40 transition"
-            >
-              <ShieldCheck size={15} /> Approve Prescription
-            </button>
-            {!canApprove && (
-              <p className="text-xs font-bold text-amber-800">
-                {pendingReview > 0
-                  ? `${pendingReview} item needs verification. `
-                  : ''}
-                {missing.length > 0 ? 'Fill required fields.' : ''}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </section>
+    </div>
   )
 }

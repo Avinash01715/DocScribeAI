@@ -2,10 +2,8 @@
 import json
 import asyncio
 import logging
-import heapq
-import time
 import struct
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
@@ -13,98 +11,25 @@ from app.services.gnani.prisma_service import GnaniPrismaClient
 from app.services.gnani.evon_service import evon_service
 
 # Initialize WebSocket router logger
-logger = logging.getLogger("dhanvantari.websocket")
+logger = logging.getLogger("docscribe.websocket")
 
 # Router for WebSocket streaming connections
 router = APIRouter()
 
 
-class AudioJitterBuffer:
-    """
-    Sliding Window Jitter Buffer using Python's heapq priority queue.
-    Re-orders out-of-order audio chunks based on monotonic sequence IDs and holds
-    chunks for up to max_wait_ms (80ms) to allow late-arriving packets to re-sequence.
-    """
-    def __init__(self, max_wait_ms: float = 80.0):
-        self.max_wait_seconds = max_wait_ms / 1000.0
-        # Priority queue entries: (sequence_number, arrival_timestamp, audio_bytes)
-        self.heap: List[Tuple[int, float, bytes]] = []
-        self.expected_seq: int = 0
-        self.first_packet: bool = True
-
-    def push(self, seq_num: int, audio: bytes) -> None:
-        """Push an incoming audio chunk with its sequence number and monotonic timestamp."""
-        heapq.heappush(self.heap, (seq_num, time.monotonic(), audio))
-
-    def pop_ready(self) -> List[bytes]:
-        """
-        Pop and return chunks that are:
-        1. In exact sequential order (seq_num == expected_seq)
-        2. Past the 80ms jitter wait threshold (skip missing chunk to prevent audio stall)
-        """
-        ready_chunks: List[bytes] = []
-        now = time.monotonic()
-
-        while self.heap:
-            seq_num, arrival_time, audio = self.heap[0]
-
-            # Synchronize expected sequence with the first incoming packet to avoid initial lag
-            if self.first_packet:
-                self.expected_seq = seq_num
-                self.first_packet = False
-
-            # In-order packet ready for consumption
-            if seq_num == self.expected_seq:
-                heapq.heappop(self.heap)
-                ready_chunks.append(audio)
-                self.expected_seq += 1
-
-            # Duplicate or stale packet arrived after window advanced
-            elif seq_num < self.expected_seq:
-                heapq.heappop(self.heap)
-
-            # Out-of-order future packet (seq_num > expected_seq)
-            else:
-                # If packet has waited past the 80ms sliding window threshold, skip ahead
-                if now - arrival_time >= self.max_wait_seconds:
-                    logger.warning(
-                        f"Jitter window expired ({self.max_wait_seconds * 1000:.0f}ms). "
-                        f"Skipping missing chunk(s) {self.expected_seq}..{seq_num - 1}."
-                    )
-                    heapq.heappop(self.heap)
-                    ready_chunks.append(audio)
-                    self.expected_seq = seq_num + 1
-                else:
-                    # Still waiting within 80ms window for missing chunk
-                    break
-
-        return ready_chunks
-
-    def flush(self) -> List[bytes]:
-        """Drain all remaining chunks in sequence order upon stream completion."""
-        chunks: List[bytes] = []
-        while self.heap:
-            _, _, audio = heapq.heappop(self.heap)
-            chunks.append(audio)
-        return chunks
-
-    def reset(self) -> None:
-        """Reset sequence tracker and clear buffer."""
-        self.heap.clear()
-        self.expected_seq = 0
-        self.first_packet = True
-
-
 # Manages state for an active real-time doctor consultation session
 class ConsultationSession:
-    # Initialize transcript buffer, audio counter, STT client, and jitter buffer
+    """Session state manager for real-time audio intake and STT transcription."""
     def __init__(self):
         self.transcript_buffer: List[str] = []
         self.audio_bytes_received: int = 0
         self.prisma_client = GnaniPrismaClient()
         self.listener_task: Optional[asyncio.Task] = None
-        self.jitter_task: Optional[asyncio.Task] = None
-        self.jitter_buffer = AudioJitterBuffer(max_wait_ms=80.0)
+        self.sender_task: Optional[asyncio.Task] = None
+        # Bounded queue (max 100 frames ~ 4.2s buffer) to decouple ingestion from upstream transmission
+        self.audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
+        # Lock to serialize outbound websocket writes across concurrent tasks
+        self.send_lock: asyncio.Lock = asyncio.Lock()
 
     # Append non-empty transcript segment to buffer
     def append_transcript(self, text: str) -> None:
@@ -115,11 +40,17 @@ class ConsultationSession:
     def get_full_transcript(self) -> str:
         return " ".join(self.transcript_buffer)
 
-    # Clear transcript buffer, reset audio counters, and clear jitter buffer
+    # Clear transcript buffer and reset audio counters
     def reset(self) -> None:
         self.transcript_buffer.clear()
         self.audio_bytes_received = 0
-        self.jitter_buffer.reset()
+        # Drain any residual frames in audio queue
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+                self.audio_queue.task_done()
+            except (asyncio.QueueEmpty, ValueError):
+                break
 
 
 # Full-duplex WebSocket endpoint for audio streaming and transcription
@@ -129,10 +60,17 @@ async def consultation_audio_stream(websocket: WebSocket):
     session = ConsultationSession()
     logger.info("Doctor client connected to /ws/consultation")
 
+    # Safe serialized WebSocket JSON dispatch
+    async def safe_send_json(payload: dict) -> None:
+        """Serializes downstream WebSocket writes to prevent Starlette concurrency collisions."""
+        async with session.send_lock:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json(payload)
+
     # Connect to upstream Gnani Prisma STT service
     prisma_connected = await session.prisma_client.connect()
 
-    # Forward real-time speech tokens from Prisma STT downstream to frontend
+    # Task 1: Forward real-time speech tokens from Prisma STT downstream to frontend
     async def forward_stt_transcripts():
         """Relays interim speech tokens from Prisma STT downstream to LiveTranscript.jsx."""
         try:
@@ -143,7 +81,7 @@ async def consultation_audio_stream(websocket: WebSocket):
                     if is_final:
                         session.append_transcript(text)
                     logger.info(f"Relaying STT transcript: '{text}' (is_final={is_final})")
-                    await websocket.send_json({
+                    await safe_send_json({
                         "type": "TRANSCRIPT_UPDATE",
                         "text": text,
                         "speaker": "Consultation",
@@ -151,30 +89,38 @@ async def consultation_audio_stream(websocket: WebSocket):
                         "transcript": session.get_full_transcript(),
                         "is_final": is_final
                     })
-        except Exception as err:
-            logger.error(f"Error in STT listener loop: {err}")
-
-    # Periodic background task to drain timed-out packets from the jitter buffer
-    async def jitter_buffer_drain_loop():
-        """Checks for and flushes chunks exceeding the 80ms jitter wait threshold."""
-        try:
-            while True:
-                await asyncio.sleep(0.02)  # Tick every 20ms
-                ready = session.jitter_buffer.pop_ready()
-                for audio_chunk in ready:
-                    session.audio_bytes_received += len(audio_chunk)
-                    await session.prisma_client.send_audio_chunk(audio_chunk)
         except asyncio.CancelledError:
             pass
         except Exception as err:
-            logger.error(f"Error in jitter buffer drain loop: {err}")
+            logger.error(f"Error in STT listener loop: {err}")
+
+    # Task 2: Background consumer dispatching audio chunks from queue to upstream Prisma STT
+    async def audio_upstream_sender():
+        """Continuously pulls PCM chunks from queue and forwards to Prisma STT without blocking browser receive."""
+        try:
+            while True:
+                pcm_chunk = await session.audio_queue.get()
+                session.audio_bytes_received += len(pcm_chunk)
+
+                # Ensure active connection before sending
+                if not session.prisma_client._is_active:
+                    connected = await session.prisma_client.connect()
+                    if connected and (not session.listener_task or session.listener_task.done()):
+                        session.listener_task = asyncio.create_task(forward_stt_transcripts())
+
+                await session.prisma_client.send_audio_chunk(pcm_chunk)
+                session.audio_queue.task_done()
+        except asyncio.CancelledError:
+            pass
+        except Exception as err:
+            logger.error(f"Error in audio upstream sender task: {err}")
 
     # Launch background task to listen for upstream STT transcripts
     if prisma_connected:
         session.listener_task = asyncio.create_task(forward_stt_transcripts())
 
-    # Launch background jitter buffer drain loop
-    session.jitter_task = asyncio.create_task(jitter_buffer_drain_loop())
+    # Launch background upstream audio sender task
+    session.sender_task = asyncio.create_task(audio_upstream_sender())
 
     try:
         # Main message loop receiving binary audio chunks and text commands
@@ -186,29 +132,26 @@ async def consultation_audio_stream(websocket: WebSocket):
                 logger.info("ASGI disconnect frame received.")
                 break
 
-            # 1. Binary Audio Frame: Parse 4-byte sequence header & route through Jitter Buffer
+            # 1. Binary Audio Frame: Strip 4-byte sequence header and enqueue raw PCM immediately
             if "bytes" in message and message["bytes"]:
                 raw_bytes = message["bytes"]
-                # Detect 4-byte sequence header: sequence numbers start at 0, so first 2 bytes are 0x00 0x00
+                # Backward-Compatible Binary Framing: Detect 4-byte sequence header
                 if len(raw_bytes) > 4 and raw_bytes[0] == 0 and raw_bytes[1] == 0:
-                    seq_num = struct.unpack("!I", raw_bytes[:4])[0]
                     pcm_chunk = raw_bytes[4:]
-                    session.jitter_buffer.push(seq_num, pcm_chunk)
                 else:
-                    # Safe fallback for raw unsequenced PCM audio
-                    session.jitter_buffer.push(session.jitter_buffer.expected_seq, raw_bytes)
+                    pcm_chunk = raw_bytes
 
-                # Auto-connect upstream STT if disconnected or interrupted
-                if not session.prisma_client._is_active:
-                    connected = await session.prisma_client.connect()
-                    if connected and (not session.listener_task or session.listener_task.done()):
-                        session.listener_task = asyncio.create_task(forward_stt_transcripts())
-
-                # Forward any contiguous in-order chunks immediately to Prisma STT
-                ready_chunks = session.jitter_buffer.pop_ready()
-                for audio_chunk in ready_chunks:
-                    session.audio_bytes_received += len(audio_chunk)
-                    await session.prisma_client.send_audio_chunk(audio_chunk)
+                if pcm_chunk:
+                    # Enqueue without blocking; drop oldest frame if queue full to prevent lag buildup
+                    try:
+                        session.audio_queue.put_nowait(pcm_chunk)
+                    except asyncio.QueueFull:
+                        try:
+                            session.audio_queue.get_nowait()
+                            session.audio_queue.task_done()
+                        except (asyncio.QueueEmpty, ValueError):
+                            pass
+                        session.audio_queue.put_nowait(pcm_chunk)
                 continue
 
             # 2. Text / Control Frames
@@ -224,7 +167,7 @@ async def consultation_audio_stream(websocket: WebSocket):
                 if action == "TRANSCRIPT_CHUNK":
                     token = payload.get("text", "")
                     session.append_transcript(token)
-                    await websocket.send_json({
+                    await safe_send_json({
                         "type": "TRANSCRIPT_UPDATE",
                         "text": token,
                         "speaker": "Doctor",
@@ -245,7 +188,7 @@ async def consultation_audio_stream(websocket: WebSocket):
                         )
 
                     # Send status update indicating extraction in progress
-                    await websocket.send_json({
+                    await safe_send_json({
                         "type": "STATUS",
                         "message": "Analyzing clinical dialogue with Evon LLM..."
                     })
@@ -255,11 +198,11 @@ async def consultation_audio_stream(websocket: WebSocket):
                     rx_payload = extracted_rx.model_dump()
 
                     # Broadcast extracted prescription to frontend clients
-                    await websocket.send_json({
+                    await safe_send_json({
                         "type": "PRESCRIPTION_EXTRACTED",
                         "data": rx_payload
                     })
-                    await websocket.send_json({
+                    await safe_send_json({
                         "type": "STRUCTURED_CARDS",
                         "payload": rx_payload
                     })
@@ -267,26 +210,29 @@ async def consultation_audio_stream(websocket: WebSocket):
                 # Action: Reset current session buffer
                 elif action == "RESET":
                     session.reset()
-                    await websocket.send_json({"type": "STATUS", "message": "Buffer reset."})
+                    await safe_send_json({"type": "STATUS", "message": "Buffer reset."})
+
+                # Action: Keep-alive ping frame
+                elif action == "PING":
+                    await safe_send_json({"type": "STATUS", "message": "PONG"})
 
     except WebSocketDisconnect:
         logger.info("Doctor client disconnected gracefully.")
     except Exception as exc:
         logger.error(f"Unexpected exception in consultation stream: {exc}")
     finally:
-        # Tear down background tasks
-        if session.jitter_task and not session.jitter_task.done():
-            session.jitter_task.cancel()
-        if session.listener_task and not session.listener_task.done():
-            session.listener_task.cancel()
-
-        # Flush any remaining audio in the jitter buffer to Prisma STT
-        for audio_chunk in session.jitter_buffer.flush():
-            session.audio_bytes_received += len(audio_chunk)
-            await session.prisma_client.send_audio_chunk(audio_chunk)
+        # Tear down background tasks cleanly
+        tasks_to_cancel = [t for t in [session.sender_task, session.listener_task] if t and not t.done()]
+        for t in tasks_to_cancel:
+            t.cancel()
+        if tasks_to_cancel:
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
 
         await session.prisma_client.close()
 
         # Close client websocket connection safely if still open
         if websocket.client_state == WebSocketState.CONNECTED:
-            await websocket.close()
+            try:
+                await websocket.close()
+            except Exception:
+                pass

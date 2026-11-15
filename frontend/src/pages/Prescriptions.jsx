@@ -2,23 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertCircle,
-  Calendar,
-  Clock,
   Download,
   ExternalLink,
-  FileAudio,
   FileText,
   Loader2,
   Pause,
-  Phone,
-  Pill,
   Play,
   Plus,
   RefreshCw,
   Search,
   Share2,
-  User,
-  Volume2,
   X,
 } from 'lucide-react'
 import DashboardLayout from '../components/layout/DashboardLayout'
@@ -32,9 +25,6 @@ import {
 } from '../services/historyApi'
 import { getLanguageMeta } from '../utils/languages'
 
-/**
- * Formats ISO timestamps to standard localized clinical date/time strings
- */
 function formatDateTime(isoString) {
   if (!isoString) return 'Recent'
   try {
@@ -53,9 +43,6 @@ function formatDateTime(isoString) {
   }
 }
 
-/**
- * Formats duration seconds into mm:ss playback representation
- */
 function formatTime(s) {
   if (!Number.isFinite(s) || s <= 0) return '0:00'
   const mins = Math.floor(s / 60)
@@ -66,14 +53,13 @@ function formatTime(s) {
 export default function Prescriptions() {
   const navigate = useNavigate()
 
-  // Data & loading state
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Shared audio playback controller
+  // Audio player controller
   const audioRef = useRef(null)
   const [activeAudioId, setActiveAudioId] = useState(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -81,10 +67,9 @@ export default function Prescriptions() {
   const [duration, setDuration] = useState(0)
   const [audioBuffering, setAudioBuffering] = useState(false)
 
-  // Copy-to-clipboard toast state
+  // Copy phone state
   const [copiedPhoneId, setCopiedPhoneId] = useState(null)
 
-  // Load prescription records from SQLite repository
   const loadHistory = useCallback(async (isManualRefresh = false) => {
     if (isManualRefresh) {
       setRefreshing(true)
@@ -98,7 +83,7 @@ export default function Prescriptions() {
       setRecords(data)
     } catch (err) {
       console.error('Prescriptions fetch failed:', err)
-      setError(err.message || 'Unable to load prescription history. Please check backend connection.')
+      setError(err.message || 'Unable to load prescription history.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -125,7 +110,6 @@ export default function Prescriptions() {
     }
   }, [])
 
-  // Filter records by patient name, phone number, or clinical diagnosis
   const filteredRecords = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return records
@@ -138,7 +122,6 @@ export default function Prescriptions() {
     })
   }, [records, searchQuery])
 
-  // Handle centralized audio playback toggle
   const togglePlayAudio = (record) => {
     const audio = audioRef.current
     if (!audio) return
@@ -146,7 +129,6 @@ export default function Prescriptions() {
     const resolvedUrl = resolveAssetUrl(record.audio_url)
     if (!resolvedUrl) return
 
-    // Tapping the currently playing record toggles pause/play
     if (activeAudioId === record.id) {
       if (isPlaying) {
         audio.pause()
@@ -157,7 +139,6 @@ export default function Prescriptions() {
       return
     }
 
-    // Switching to a new record
     audio.pause()
     setActiveAudioId(record.id)
     setIsPlaying(false)
@@ -180,7 +161,6 @@ export default function Prescriptions() {
       })
   }
 
-  // Audio element event handlers
   const handleTimeUpdate = () => {
     if (audioRef.current) setCurrentTime(audioRef.current.currentTime)
   }
@@ -204,7 +184,6 @@ export default function Prescriptions() {
     setActiveAudioId(null)
   }
 
-  // Native share invocation
   const handleNativeShare = async (record) => {
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
@@ -218,7 +197,6 @@ export default function Prescriptions() {
     }
   }
 
-  // Copy phone number helper
   const handleCopyPhone = (id, phone) => {
     if (!phone) return
     const sanitized = sanitizePhoneE164(phone)
@@ -234,7 +212,7 @@ export default function Prescriptions() {
 
   return (
     <DashboardLayout>
-      {/* Hidden global audio element for coordinated single-stream playback */}
+      {/* Centralized hidden audio player */}
       <audio
         ref={audioRef}
         preload="none"
@@ -244,180 +222,257 @@ export default function Prescriptions() {
         onError={handleAudioError}
       />
 
-      {/* Top Header Section */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pb-5 border-b border-slate-200">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-[#DCE6DF]">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Prescription History
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold text-[#17211B] tracking-tight">
+              Prescription history
             </h1>
             {!loading && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-bold text-teal-800">
-                <FileText size={12} className="text-teal-600" />
+              <span className="text-xs text-[#4A5D52] bg-[#F3F7F4] border border-[#DCE6DF] px-2 py-0.5 rounded-full">
                 {records.length} {records.length === 1 ? 'record' : 'records'}
               </span>
             )}
           </div>
-          <p className="mt-1 text-xs font-medium text-slate-500">
-            Past OPD consultations, digital prescriptions, and vernacular voice instructions.
+          <p className="mt-1 text-sm text-[#4A5D52]">
+            Past consultations, generated prescriptions, and vernacular voice instructions
           </p>
         </div>
 
-        {/* Action Controls */}
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => loadHistory(true)}
             disabled={refreshing || loading}
-            aria-label="Refresh prescription history"
-            title="Refresh prescription records"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 disabled:opacity-50 transition"
+            aria-label="Refresh prescription list"
+            title="Refresh prescriptions"
+            className="btn-secondary min-h-[44px] px-3.5 rounded-xl border border-[#DCE6DF] bg-white text-[#17211B] hover:bg-[#F3F7F4] text-xs font-medium flex items-center gap-1.5"
           >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin text-teal-600' : 'text-slate-500'} />
-            <span className="hidden sm:inline">{refreshing ? 'Refreshing…' : 'Refresh'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 text-[#4A5D52] ${refreshing ? 'animate-spin' : ''}`} />
+            <span>{refreshing ? 'Refreshing…' : 'Refresh'}</span>
           </button>
 
           <button
+            type="button"
             onClick={() => navigate('/consultation')}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-700 transition"
+            className="btn-primary min-h-[44px] px-4 rounded-xl bg-[#14633F] text-white hover:bg-[#0D4A2F] text-xs font-medium flex items-center gap-1.5"
           >
-            <Plus size={15} />
-            <span>New Consultation</span>
+            <Plus className="w-4 h-4" strokeWidth={1.75} />
+            <span>New consultation</span>
           </button>
         </div>
       </div>
 
-      {/* Real-time Search and Filter Toolbar */}
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-md">
-          <Search size={15} className="absolute left-3.5 top-2.5 text-slate-400" />
+      {/* Search Bar (16px font size prevents auto-zoom on mobile) */}
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="w-4 h-4 absolute left-3 top-3.5 text-[#4A5D52]" strokeWidth={1.75} />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by patient name, phone, or diagnosis…"
-            className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-9 py-2 text-xs font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600 shadow-2xs transition"
+            className="w-full min-h-[44px] pl-9 pr-9 bg-white border border-[#DCE6DF] rounded-xl text-base sm:text-xs text-[#17211B] placeholder:text-[#4A5D52] focus:border-[#14633F] outline-none transition-colors"
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => setSearchQuery('')}
-              aria-label="Clear search query"
-              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+              className="btn-icon min-w-[36px] min-h-[36px] flex items-center justify-center absolute right-1.5 top-1 text-[#4A5D52] hover:text-[#17211B]"
             >
-              <X size={14} />
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
-
-        {searchQuery && (
-          <div className="text-[11px] font-medium text-slate-500">
-            Showing <strong className="text-slate-900">{filteredRecords.length}</strong> of {records.length} matches
-          </div>
-        )}
       </div>
 
-      {/* Error Banner with Retry */}
+      {/* Error Banner */}
       {error && (
         <div
           role="alert"
-          className="mt-4 flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-xs text-rose-800"
+          className="mt-4 flex items-center justify-between p-3 rounded-lg bg-[#FEE2E2] border border-[#FECACA] text-[#B91C1C] text-xs"
         >
           <div className="flex items-center gap-2">
-            <AlertCircle size={16} className="text-rose-600 shrink-0" />
-            <span className="font-medium">{error}</span>
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
           </div>
           <button
+            type="button"
             onClick={() => loadHistory(true)}
-            className="rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-rose-700 transition"
+            className="px-2.5 py-1 rounded bg-white border border-[#FECACA] text-[#B91C1C] font-medium hover:bg-[#FEE2E2]"
           >
             Retry
           </button>
         </div>
       )}
 
-      {/* Main Content Area */}
-      <div className="mt-4">
-        {/* Loading Skeleton */}
-        {loading && (
-          <div className="space-y-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-slate-200" />
-                  <div className="space-y-1.5">
-                    <div className="h-3.5 w-32 rounded bg-slate-200" />
-                    <div className="h-2.5 w-24 rounded bg-slate-100" />
-                  </div>
-                </div>
-                <div className="h-5 w-36 rounded bg-slate-100" />
-                <div className="h-8 w-44 rounded bg-slate-100" />
-                <div className="h-8 w-28 rounded bg-slate-200" />
-              </div>
-            ))}
+      {/* Clean Table on #FFFFFF with #F3F7F4 Header and #DCE6DF Dividers */}
+      <div className="mt-5 border border-[#DCE6DF] rounded-lg overflow-hidden bg-white">
+        {loading ? (
+          <div className="p-8 text-center text-xs text-[#4A5D52]">
+            Loading prescription history…
           </div>
-        )}
-
-        {/* Empty State */}
-        {!loading && filteredRecords.length === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-xs">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 border border-teal-100 text-teal-600 mb-3">
-              {searchQuery ? <Search size={22} /> : <FileText size={22} />}
-            </div>
-            <h3 className="text-sm font-bold text-slate-900">
-              {searchQuery ? 'No matching prescriptions found' : 'No prescriptions in archive'}
-            </h3>
-            <p className="mt-1 max-w-sm text-xs font-medium text-slate-500">
-              {searchQuery
-                ? `No consultation records matched "${searchQuery}". Try searching by phone number or disease condition.`
-                : 'Complete an ambient consultation to automatically synthesize regional voice notes, compile PDF receipts, and archive records.'}
+        ) : filteredRecords.length === 0 ? (
+          <div className="p-12 text-center text-sm text-[#4A5D52]">
+            <p className="font-medium text-[#17211B]">
+              No prescriptions yet. Start a consultation.
             </p>
-            {searchQuery ? (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="mt-4 rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
-              >
-                Clear Search Filter
-              </button>
-            ) : (
-              <button
-                onClick={() => navigate('/consultation')}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-700 transition"
-              >
-                <Plus size={15} />
-                <span>Start First Consultation</span>
-              </button>
-            )}
+            <p className="mt-1 text-xs text-[#4A5D52]">
+              Completed consultations will appear in this archive.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/consultation')}
+              className="mt-4 min-h-[40px] px-4 rounded-lg bg-[#14633F] text-white hover:bg-[#0D4A2F] text-xs font-medium inline-flex items-center gap-1.5 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Start consultation</span>
+            </button>
           </div>
-        )}
-
-        {/* Data Records View */}
-        {!loading && filteredRecords.length > 0 && (
+        ) : (
           <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+            {/* 1. Mobile Ruled Card View (< 768px) - Eliminates horizontal table scroll */}
+            <div className="md:hidden divide-y divide-[#DCE6DF]">
+              {filteredRecords.map((item) => {
+                const isCurrentAudio = activeAudioId === item.id
+                const itemPdfUrl = resolveAssetUrl(item.pdf_url)
+                const itemAudioUrl = resolveAssetUrl(item.audio_url)
+                const waShareUrl = buildWhatsAppShareUrl(item)
+                const phoneRaw = item.patient_phone || item.phone_number || ''
+                const isCopied = copiedPhoneId === item.id
+                const langMeta = getLanguageMeta(item.language)
+
+                return (
+                  <div key={item.id} className="p-4 space-y-3 bg-white">
+                    {/* Header: Name + Date/Time */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-[#17211B] truncate">
+                          {item.patient_name || 'Patient'}
+                        </h3>
+                        {phoneRaw && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopyPhone(item.id, phoneRaw)}
+                            title="Click to copy phone number"
+                            className="font-mono text-xs text-[#4A5D52] hover:text-[#14633F] mt-0.5 inline-flex items-center gap-1"
+                          >
+                            <span>+{sanitizePhoneE164(phoneRaw)}</span>
+                            {isCopied && <span className="text-[#14633F] font-sans font-medium text-[11px]">Copied</span>}
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-xs text-[#4A5D52] block">
+                          {formatDateTime(item.timestamp || item.created_at)}
+                        </span>
+                        <span className="font-mono text-[11px] text-[#4A5D52]">#{item.id}</span>
+                      </div>
+                    </div>
+
+                    {/* Diagnosis & Language Tag */}
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="font-serif text-sm text-[#17211B] truncate flex-1">
+                        {item.diagnosis || 'Clinical consultation'}
+                      </span>
+                      <span className="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F3F7F4] text-[#14633F] border border-[#DCE6DF]">
+                        {langMeta.label}
+                      </span>
+                    </div>
+
+                    {/* Inline Voice Note Player */}
+                    {itemAudioUrl && (
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#F3F7F4] border border-[#DCE6DF]">
+                        <button
+                          type="button"
+                          onClick={() => togglePlayAudio(item)}
+                          aria-label={isCurrentAudio && isPlaying ? 'Pause audio' : 'Play audio'}
+                          className="btn-icon min-w-[36px] min-h-[36px] flex items-center justify-center rounded-full bg-[#14633F] text-white"
+                        >
+                          {isCurrentAudio && audioBuffering ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : isCurrentAudio && isPlaying ? (
+                            <Pause className="w-3.5 h-3.5 fill-white" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5 ml-0.5 fill-white" />
+                          )}
+                        </button>
+
+                        <span className="font-mono text-xs text-[#4A5D52] tabular-nums">
+                          {isCurrentAudio
+                            ? `${formatTime(currentTime)} / ${formatTime(duration)}`
+                            : 'Voice instruction'}
+                        </span>
+
+                        <a
+                          href={itemAudioUrl}
+                          download={`rx_audio_${item.id}.mp3`}
+                          title="Download audio"
+                          className="btn-icon min-w-[36px] min-h-[36px] flex items-center justify-center text-[#4A5D52] hover:text-[#17211B]"
+                        >
+                          <Download className="w-4 h-4" />
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Touch-Friendly Action Buttons (min-h-[44px]) */}
+                    <div className="flex items-center gap-2 pt-1">
+                      {itemPdfUrl && (
+                        <a
+                          href={itemPdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="View PDF"
+                          className="btn-secondary flex-1 min-h-[44px] px-3 rounded-xl border border-[#DCE6DF] bg-white text-[#17211B] hover:bg-[#F3F7F4] text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-[#14633F]" />
+                          <span>PDF</span>
+                          <ExternalLink className="w-3 h-3 text-[#4A5D52]" />
+                        </a>
+                      )}
+
+                      <a
+                        href={waShareUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Send via WhatsApp"
+                        className="btn-primary flex-1 min-h-[44px] px-3 rounded-xl bg-[#14633F] text-white hover:bg-[#0D4A2F] text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+                      >
+                        <WhatsAppIcon className="w-3.5 h-3.5 fill-white" />
+                        <span>WhatsApp</span>
+                      </a>
+
+                      {canNativeShare && (
+                        <button
+                          type="button"
+                          onClick={() => handleNativeShare(item)}
+                          title="Share sheet"
+                          className="btn-icon min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-[#DCE6DF] bg-white text-[#4A5D52] hover:text-[#17211B] hover:bg-[#F3F7F4]"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* 2. Desktop Clean Searchable Table (hidden on mobile, visible on md:) */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="border-b border-slate-200 bg-slate-50/80 font-bold uppercase tracking-wider text-slate-500 text-[10px]">
+                <thead className="bg-[#F3F7F4] border-b border-[#DCE6DF] text-xs font-medium text-[#4A5D52]">
                   <tr>
-                    <th scope="col" className="px-4 py-3">
-                      Date &amp; Time
-                    </th>
-                    <th scope="col" className="px-4 py-3">
-                      Patient Details
-                    </th>
-                    <th scope="col" className="px-4 py-3">
-                      Clinical Diagnosis
-                    </th>
-                    <th scope="col" className="px-4 py-3">
-                      Voice Note (16kHz)
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-right">
-                      Actions &amp; Delivery
-                    </th>
+                    <th scope="col" className="px-4 py-3">Date and time</th>
+                    <th scope="col" className="px-4 py-3">Patient</th>
+                    <th scope="col" className="px-4 py-3">Diagnosis</th>
+                    <th scope="col" className="px-4 py-3">Language</th>
+                    <th scope="col" className="px-4 py-3">Voice note</th>
+                    <th scope="col" className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-[#DCE6DF]">
                   {filteredRecords.map((item) => {
                     const isCurrentAudio = activeAudioId === item.id
                     const itemPdfUrl = resolveAssetUrl(item.pdf_url)
@@ -430,155 +485,125 @@ export default function Prescriptions() {
                     return (
                       <tr
                         key={item.id}
-                        className="hover:bg-slate-50/70 transition group"
+                        className="hover:bg-[#F3F7F4]/50 transition-colors"
                       >
-                        {/* Timestamp */}
-                        <td className="px-4 py-3.5 align-top whitespace-nowrap">
-                          <div className="flex items-center gap-1.5 text-slate-700 font-medium">
-                            <Clock size={13} className="text-slate-400 shrink-0" />
-                            <span>{formatDateTime(item.timestamp || item.created_at)}</span>
-                          </div>
-                          <span className="mt-0.5 inline-block text-[10px] font-mono text-slate-400">
-                            #{item.id}
-                          </span>
+                        {/* Date & Time */}
+                        <td className="px-4 py-3.5 whitespace-nowrap text-[#4A5D52]">
+                          <div>{formatDateTime(item.timestamp || item.created_at)}</div>
+                          <div className="font-mono text-[11px] text-[#4A5D52] mt-0.5">#{item.id}</div>
                         </td>
 
-                        {/* Patient Details */}
-                        <td className="px-4 py-3.5 align-top">
-                          <div className="flex items-start gap-2.5">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 border border-teal-200/60 text-teal-700 shrink-0 font-bold">
-                              <User size={15} />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-bold text-slate-900">
-                                  {item.patient_name || 'Patient'}
-                                </span>
-                                <span
-                                  title={`Voice Language: ${langMeta.label}`}
-                                  className="px-2 py-0.5 text-xs font-semibold rounded-full bg-teal-50 text-teal-700 border border-teal-200"
-                                >
-                                  {langMeta.badge}
-                                </span>
-                              </div>
-                              {phoneRaw && (
-                                <button
-                                  onClick={() => handleCopyPhone(item.id, phoneRaw)}
-                                  title="Click to copy E.164 phone"
-                                  className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-mono text-slate-500 hover:text-teal-700 transition"
-                                >
-                                  <Phone size={10} className="text-slate-400" />
-                                  <span>+{sanitizePhoneE164(phoneRaw)}</span>
-                                  {isCopied && (
-                                    <span className="text-[10px] font-sans font-bold text-emerald-600 ml-1">
-                                      Copied!
-                                    </span>
-                                  )}
-                                </button>
+                        {/* Patient */}
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <div className="font-medium text-[#17211B]">
+                            {item.patient_name || 'Patient'}
+                          </div>
+                          {phoneRaw && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPhone(item.id, phoneRaw)}
+                              title="Click to copy phone number"
+                              className="font-mono text-[11px] text-[#4A5D52] hover:text-[#14633F] mt-0.5 inline-block"
+                            >
+                              +{sanitizePhoneE164(phoneRaw)}
+                              {isCopied && (
+                                <span className="text-[#14633F] font-sans font-medium ml-1">Copied</span>
                               )}
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Diagnosis & Medications */}
-                        <td className="px-4 py-3.5 align-top max-w-xs">
-                          <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-100/80 px-2 py-0.5 text-xs font-semibold text-slate-800">
-                            {item.diagnosis || 'Clinical Assessment'}
-                          </span>
-                          {Number.isInteger(item.medications_count) && item.medications_count > 0 && (
-                            <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
-                              <Pill size={11} className="text-teal-600" />
-                              <span>{item.medications_count} prescribed</span>
-                            </div>
+                            </button>
                           )}
                         </td>
 
+                        {/* Clinical Diagnosis in Source Serif 4 */}
+                        <td className="px-4 py-3.5 font-serif text-sm text-[#17211B] max-w-xs">
+                          {item.diagnosis || 'Clinical assessment'}
+                        </td>
+
+                        {/* Language */}
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <span className="inline-block px-2 py-0.5 text-xs bg-[#F3F7F4] border border-[#DCE6DF] rounded text-[#17211B]">
+                            {langMeta.label}
+                          </span>
+                        </td>
+
                         {/* Voice Note Player */}
-                        <td className="px-4 py-3.5 align-top whitespace-nowrap">
+                        <td className="px-4 py-3.5 whitespace-nowrap">
                           {itemAudioUrl ? (
                             <div className="flex items-center gap-2">
                               <button
+                                type="button"
                                 onClick={() => togglePlayAudio(item)}
                                 aria-label={isCurrentAudio && isPlaying ? 'Pause audio' : 'Play audio note'}
-                                className={`flex h-8 w-8 items-center justify-center rounded-full transition shadow-2xs ${
+                                className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
                                   isCurrentAudio && isPlaying
-                                    ? 'bg-teal-600 text-white'
-                                    : 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100'
+                                    ? 'bg-[#14633F] text-white'
+                                    : 'bg-[#F3F7F4] border border-[#DCE6DF] text-[#14633F] hover:bg-white'
                                 }`}
                               >
                                 {isCurrentAudio && audioBuffering ? (
-                                  <Loader2 size={14} className="animate-spin" />
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 ) : isCurrentAudio && isPlaying ? (
-                                  <Pause size={14} />
+                                  <Pause className="w-3 h-3 fill-current" />
                                 ) : (
-                                  <Play size={14} className="ml-0.5" />
+                                  <Play className="w-3 h-3 ml-0.5 fill-current" />
                                 )}
                               </button>
 
-                              <div className="text-[11px] font-mono tabular-nums text-slate-500">
-                                {isCurrentAudio ? (
-                                  <span>
-                                    {formatTime(currentTime)} / {formatTime(duration)}
-                                  </span>
-                                ) : (
-                                  <span className="flex items-center gap-1 text-slate-400">
-                                    <FileAudio size={12} /> Audio Note
-                                  </span>
-                                )}
-                              </div>
+                              <span className="font-mono text-[11px] tabular-nums text-[#4A5D52]">
+                                {isCurrentAudio
+                                  ? `${formatTime(currentTime)} / ${formatTime(duration)}`
+                                  : 'Audio'}
+                              </span>
 
                               <a
                                 href={itemAudioUrl}
                                 download={`rx_audio_${item.id}.mp3`}
-                                title="Download audio note"
-                                className="text-slate-400 hover:text-slate-700 transition p-1"
+                                title="Download audio"
+                                className="text-[#4A5D52] hover:text-[#17211B] p-1"
                               >
-                                <Download size={13} />
+                                <Download className="w-3.5 h-3.5" />
                               </a>
                             </div>
                           ) : (
-                            <span className="text-[11px] text-slate-400 italic">None generated</span>
+                            <span className="text-[11px] text-[#4A5D52] italic">None</span>
                           )}
                         </td>
 
-                        {/* Quick Actions & Delivery */}
-                        <td className="px-4 py-3.5 align-top text-right whitespace-nowrap">
+                        {/* Actions */}
+                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
                           <div className="inline-flex items-center gap-1.5 justify-end">
-                            {/* PDF View Link */}
                             {itemPdfUrl && (
                               <a
                                 href={itemPdfUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                title="View PDF Prescription"
-                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-teal-300 hover:text-teal-700 shadow-2xs transition"
+                                title="View PDF"
+                                className="btn-secondary min-h-[36px] px-2.5 rounded-lg border border-[#DCE6DF] bg-white text-[#17211B] hover:bg-[#F3F7F4] text-xs font-medium inline-flex items-center gap-1"
                               >
-                                <FileText size={13} className="text-teal-600" />
+                                <FileText className="w-3.5 h-3.5 text-[#14633F]" />
                                 <span>PDF</span>
-                                <ExternalLink size={10} className="text-slate-400" />
+                                <ExternalLink className="w-2.5 h-2.5 text-[#4A5D52]" />
                               </a>
                             )}
 
-                            {/* Synchronous Direct WhatsApp Navigation (Zero Popup Suppression) */}
                             <a
                               href={waShareUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              title="Send to patient via WhatsApp"
-                              className="inline-flex items-center gap-1 rounded-lg bg-[#25D366] px-2.5 py-1.5 text-xs font-bold text-white hover:bg-[#1ebe5d] shadow-2xs transition"
+                              title="Send via WhatsApp"
+                              className="btn-primary min-h-[36px] px-2.5 rounded-lg bg-[#14633F] text-white hover:bg-[#0D4A2F] text-xs font-medium inline-flex items-center gap-1"
                             >
-                              <WhatsAppIcon className="h-3.5 w-3.5 fill-white" />
+                              <WhatsAppIcon className="w-3 h-3 fill-white" />
                               <span>WhatsApp</span>
                             </a>
 
-                            {/* Native Web Share API */}
                             {canNativeShare && (
                               <button
+                                type="button"
                                 onClick={() => handleNativeShare(item)}
-                                title="Native Share sheet"
-                                className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 shadow-2xs transition"
+                                title="Share sheet"
+                                className="btn-icon min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-[#DCE6DF] bg-white text-[#4A5D52] hover:text-[#17211B] hover:bg-[#F3F7F4]"
                               >
-                                <Share2 size={13} />
+                                <Share2 className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>
@@ -588,165 +613,6 @@ export default function Prescriptions() {
                   })}
                 </tbody>
               </table>
-            </div>
-
-            {/* Mobile Stacked Card View */}
-            <div className="md:hidden space-y-3">
-              {filteredRecords.map((item) => {
-                const isCurrentAudio = activeAudioId === item.id
-                const itemPdfUrl = resolveAssetUrl(item.pdf_url)
-                const itemAudioUrl = resolveAssetUrl(item.audio_url)
-                const waShareUrl = buildWhatsAppShareUrl(item)
-                const phoneRaw = item.patient_phone || item.phone_number || ''
-                const isCopied = copiedPhoneId === item.id
-                const langMeta = getLanguageMeta(item.language)
-
-                return (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-3"
-                  >
-                    {/* Card Top: Patient info & Date */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 border border-teal-200/60 text-teal-700 font-bold">
-                          <User size={16} />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <h4 className="text-sm font-bold text-slate-900 leading-tight">
-                              {item.patient_name || 'Patient'}
-                            </h4>
-                            <span
-                              title={`Voice Language: ${langMeta.label}`}
-                              className="px-2 py-0.5 text-xs font-semibold rounded-full bg-teal-50 text-teal-700 border border-teal-200"
-                            >
-                              {langMeta.badge}
-                            </span>
-                          </div>
-                          {phoneRaw && (
-                            <button
-                              onClick={() => handleCopyPhone(item.id, phoneRaw)}
-                              className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-500 hover:text-teal-700"
-                            >
-                              <Phone size={10} className="text-slate-400" />
-                              <span>+{sanitizePhoneE164(phoneRaw)}</span>
-                              {isCopied && (
-                                <span className="text-[10px] font-sans font-bold text-emerald-600">
-                                  Copied!
-                                </span>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500">
-                          <Calendar size={11} className="text-slate-400" />
-                          {formatDateTime(item.timestamp || item.created_at)}
-                        </span>
-                        <div className="text-[10px] font-mono text-slate-400">#{item.id}</div>
-                      </div>
-                    </div>
-
-                    {/* Diagnosis & Count */}
-                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-800">
-                        {item.diagnosis || 'Clinical OPD Assessment'}
-                      </span>
-                      {Number.isInteger(item.medications_count) && item.medications_count > 0 && (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-                          <Pill size={11} className="text-teal-600" />
-                          <span>{item.medications_count} meds</span>
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Integrated Audio Player Preview */}
-                    {itemAudioUrl && (
-                      <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 p-2 text-xs">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => togglePlayAudio(item)}
-                            aria-label={isCurrentAudio && isPlaying ? 'Pause audio' : 'Play audio note'}
-                            className={`flex h-8 w-8 items-center justify-center rounded-full transition shadow-2xs ${
-                              isCurrentAudio && isPlaying
-                                ? 'bg-teal-600 text-white'
-                                : 'bg-white text-teal-700 border border-slate-200 hover:bg-teal-50'
-                            }`}
-                          >
-                            {isCurrentAudio && audioBuffering ? (
-                              <Loader2 size={13} className="animate-spin" />
-                            ) : isCurrentAudio && isPlaying ? (
-                              <Pause size={13} />
-                            ) : (
-                              <Play size={13} className="ml-0.5" />
-                            )}
-                          </button>
-                          <div>
-                            <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
-                              <Volume2 size={12} className="text-teal-600" /> {langMeta.label} Voice Note
-                            </span>
-                            <span className="text-[10px] font-mono tabular-nums text-slate-500">
-                              {isCurrentAudio
-                                ? `${formatTime(currentTime)} / ${formatTime(duration)}`
-                                : '16kHz regional TTS'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <a
-                          href={itemAudioUrl}
-                          download={`rx_audio_${item.id}.mp3`}
-                          className="text-slate-400 hover:text-slate-700 p-1.5"
-                          title="Download audio"
-                        >
-                          <Download size={14} />
-                        </a>
-                      </div>
-                    )}
-
-                    {/* Action Bar */}
-                    <div className="flex items-center gap-2 pt-1">
-                      {/* WhatsApp Direct Link */}
-                      <a
-                        href={waShareUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#25D366] px-3 py-2 text-xs font-bold text-white shadow-2xs hover:bg-[#1ebe5d] transition"
-                      >
-                        <WhatsAppIcon className="h-4 w-4 fill-white" />
-                        <span>Send WhatsApp</span>
-                      </a>
-
-                      {/* PDF Viewer */}
-                      {itemPdfUrl && (
-                        <a
-                          href={itemPdfUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:border-teal-300 hover:text-teal-700 transition"
-                        >
-                          <FileText size={14} className="text-teal-600" />
-                          <span>PDF</span>
-                        </a>
-                      )}
-
-                      {/* Native Share fallback */}
-                      {canNativeShare && (
-                        <button
-                          onClick={() => handleNativeShare(item)}
-                          className="p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shadow-2xs transition"
-                          title="Share"
-                        >
-                          <Share2 size={15} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
             </div>
           </>
         )}

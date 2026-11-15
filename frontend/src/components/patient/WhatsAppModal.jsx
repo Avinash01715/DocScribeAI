@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Download, Eye, EyeOff, FileText, Loader2, Music, Share2, Sparkles, X } from 'lucide-react'
+import { Check, Download, Eye, EyeOff, FileText, Loader2, Music, X } from 'lucide-react'
 import VoicePlayer from './VoicePlayer'
 
 /**
@@ -22,7 +22,6 @@ export function WhatsAppIcon({ className = "h-4 w-4", ...props }) {
 
 const DEFAULT_COUNTRY_CODE = '91'
 
-// Normalize input phone number to 12-digit Indian E.164 without plus sign
 function normalizeIndianPhone(raw) {
   const digits = String(raw || '').replace(/\D/g, '').replace(/^0+/, '')
   if (digits.length === 10) return `${DEFAULT_COUNTRY_CODE}${digits}`
@@ -30,31 +29,28 @@ function normalizeIndianPhone(raw) {
   return ''
 }
 
-// Modal dialog managing patient phone input, artifact generation, and WhatsApp file dispatch
 export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
   const [phone, setPhone] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [showPdfEmbed, setShowPdfEmbed] = useState(false)
+  const [sentToast, setSentToast] = useState(false)
 
   const [audioFile, setAudioFile] = useState(null)
   const [pdfFile, setPdfFile] = useState(null)
   const [loadingFiles, setLoadingFiles] = useState(false)
 
-  // Derived links and text from backend dispatch result
   const audioUrl = result?.voice_note?.audio_url || result?.audio_url || null
   const pdfUrl = result?.pdf_receipt?.url || result?.pdf_url || null
-  const deepLink = result?.whatsapp_deep_link || null
   const scriptText = result?.voice_note?.script || result?.narrative_text || ''
 
-  // Pre-fetch actual binary files (Audio MP3 and PDF) as File objects for Web Share API
   useEffect(() => {
     if (!audioUrl && !pdfUrl) return
     let cancelled = false
-    setLoadingFiles(true)
 
     const fetchBlobs = async () => {
+      setLoadingFiles(true)
       try {
         if (audioUrl) {
           const res = await fetch(audioUrl)
@@ -73,7 +69,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
           }
         }
       } catch (err) {
-        console.warn('[DocScribeAI] Pre-fetching media files failed:', err)
+        console.warn('[DocScribe] Pre-fetching media failed:', err)
       } finally {
         if (!cancelled) setLoadingFiles(false)
       }
@@ -88,17 +84,16 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
     }
   }, [audioUrl, pdfUrl])
 
-  // Reset modal state and notify parent on close
   const handleClose = () => {
     setError('')
     setResult(null)
     setShowPdfEmbed(false)
+    setSentToast(false)
     setAudioFile(null)
     setPdfFile(null)
     onClose()
   }
 
-  // Listen for Escape keyboard shortcut to close modal
   useEffect(() => {
     if (!open) return
     const onKey = (e) => e.key === 'Escape' && handleClose()
@@ -110,12 +105,15 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
 
   const normalized = normalizeIndianPhone(phone)
 
-  // Trigger backend generation of PDF, vernacular TTS voice note, and WhatsApp links
+  // Primary Action: Send to patient
   const handleDispatch = async () => {
     setBusy(true)
     setError('')
     try {
-      setResult(await onPrepare(normalized))
+      const data = await onPrepare(normalized)
+      setResult(data)
+      setSentToast(true)
+      setTimeout(() => setSentToast(false), 3000)
     } catch (e) {
       setError(e.message || 'Dispatch failed.')
     } finally {
@@ -123,22 +121,21 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
     }
   }
 
-  // Share actual Audio file (.mp3) directly to WhatsApp or native share sheet
   const shareAudioFile = async () => {
     setError('')
     if (audioFile && typeof navigator.canShare === 'function' && navigator.canShare({ files: [audioFile] })) {
       try {
         await navigator.share({
           files: [audioFile],
-          title: 'Prescription Voice Note',
+          title: 'Prescription voice note',
         })
+        setSentToast(true)
+        setTimeout(() => setSentToast(false), 3000)
         return
       } catch (e) {
         if (e.name === 'AbortError') return
-        console.warn('Audio share error:', e)
       }
     }
-    // Fallback: download audio directly
     if (audioUrl) {
       const a = document.createElement('a')
       a.href = audioUrl
@@ -148,7 +145,6 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
     }
   }
 
-  // Share actual Prescription PDF file (.pdf) directly to WhatsApp or native share sheet
   const sharePdfFile = async () => {
     setError('')
     if (pdfFile && typeof navigator.canShare === 'function' && navigator.canShare({ files: [pdfFile] })) {
@@ -157,13 +153,13 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
           files: [pdfFile],
           title: 'Prescription PDF',
         })
+        setSentToast(true)
+        setTimeout(() => setSentToast(false), 3000)
         return
       } catch (e) {
         if (e.name === 'AbortError') return
-        console.warn('PDF share error:', e)
       }
     }
-    // Fallback: download PDF directly
     if (pdfUrl) {
       const a = document.createElement('a')
       a.href = pdfUrl
@@ -175,140 +171,169 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/40 backdrop-blur-[1px]"
       role="dialog"
       aria-modal="true"
-      aria-label="Send to Patient"
+      aria-label="Send prescription to patient"
     >
-      <div className="max-h-[92vh] w-full space-y-3.5 overflow-y-auto rounded-t-2xl border border-slate-200 bg-white p-5 sm:max-w-md sm:rounded-2xl shadow-xl">
-
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#25D366]/15 text-[#25D366]">
-              <WhatsAppIcon className="h-4.5 w-4.5" />
-            </div>
-            <h2 className="text-sm font-bold text-slate-900">Send Prescription &amp; Voice Note</h2>
+      <div className="w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[90vh] sm:rounded-2xl bg-white border-t sm:border border-[#DCE6DF] flex flex-col justify-between overflow-hidden shadow-2xl text-[#17211B]">
+        {/* Modal header */}
+        <div className="h-14 px-5 sm:px-6 border-b border-[#DCE6DF] flex items-center justify-between shrink-0 bg-white">
+          <div>
+            <h2 className="text-base font-semibold text-[#17211B]">
+              Send to patient
+            </h2>
+            <p className="text-xs text-[#4A5D52]">
+              Clinical prescription and voice instructions via WhatsApp
+            </p>
           </div>
-          <button onClick={handleClose} aria-label="Close" className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition">
-            <X size={16} />
+          <button
+            type="button"
+            onClick={handleClose}
+            aria-label="Close dialog"
+            className="btn-icon min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-[#4A5D52] hover:text-[#17211B] hover:bg-[#F3F7F4]"
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Doctor approval requirement warning */}
-        {!approved && (
-          <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 font-bold">
-            Doctor approval required before sending.
-          </p>
-        )}
-
-        {/* Patient mobile phone number input field */}
-        <label className="block">
-          <span className="mb-1 block text-xs font-bold text-slate-700">Patient WhatsApp (+91)</span>
-          <div className="relative">
-            <span className="absolute left-3.5 top-2 font-mono text-xs font-bold text-slate-400">+91</span>
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              inputMode="tel"
-              placeholder=""
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 pl-11 pr-3 py-1.5 font-mono text-xs font-bold text-slate-900 outline-none focus:border-teal-600 focus:bg-white transition"
-            />
-          </div>
-          {phone && !normalized && (
-            <span className="mt-1 block text-[11px] font-bold text-rose-700">Enter a valid 10-digit number.</span>
+        {/* Scrollable modal body */}
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+          {/* Doctor approval check */}
+          {!approved && (
+            <p role="alert" className="p-2.5 rounded-lg bg-[#FEF3C7] border border-[#FDE68A] text-[#B45309] text-xs font-medium">
+              Doctor approval required before sending.
+            </p>
           )}
-        </label>
 
-        {/* Button triggering PDF and audio generation */}
-        <button
-          onClick={handleDispatch}
-          disabled={!approved || !normalized || busy}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-teal-700 disabled:opacity-40 transition"
-        >
-          {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          <span>{busy ? 'Generating…' : result ? 'Regenerate Files' : 'Generate Voice & PDF Files'}</span>
-        </button>
-
-        {/* Dispatch error display */}
-        {error && (
-          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs font-bold text-rose-800">{error}</p>
-        )}
-
-        {/* Output Section with direct file sending buttons */}
-        {result && (
-          <div className="space-y-3 pt-1">
-
-            {/* Recipient verification banner */}
-            <div className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-900">
-              <CheckCircle2 size={14} className="text-emerald-600" />
-              <span>Files ready for +{normalized}</span>
+          {/* Patient WhatsApp phone number */}
+          <label className="block">
+            <span className="block text-xs font-medium text-[#4A5D52] mb-1">
+              Patient WhatsApp (+91)
+            </span>
+            <div className="relative">
+              <span className="absolute left-3 top-3 font-mono text-xs text-[#4A5D52]">
+                +91
+              </span>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="9876543210"
+                className="w-full min-h-[44px] bg-white border border-[#DCE6DF] rounded-xl pl-11 pr-3 py-2 font-mono text-base sm:text-sm text-[#17211B] focus:border-[#14633F] outline-none"
+              />
             </div>
+            {phone && !normalized && (
+              <span className="mt-1 block text-xs text-[#B91C1C]">
+                Please enter a 10-digit mobile number.
+              </span>
+            )}
+          </label>
 
-            {/* In-modal voice player preview */}
-            {audioUrl && <VoicePlayer src={audioUrl} script={scriptText} />}
+          {/* Toast confirmation message */}
+          {sentToast && (
+            <div className="p-2.5 rounded-lg bg-[#F3F7F4] border border-[#DCE6DF] text-xs text-[#14633F] font-semibold flex items-center justify-center gap-1.5">
+              <Check className="w-4 h-4" />
+              <span>Prescription and voice instructions forwarded</span>
+            </div>
+          )}
 
-            {/* Two Direct File Dispatch Buttons */}
-            <div className="space-y-2 pt-1">
-              {/* Button 1: Send Actual Audio File */}
+          {error && (
+            <p role="alert" className="p-2.5 rounded-lg bg-[#FEE2E2] border border-[#FECACA] text-[#B91C1C] text-xs">
+              {error}
+            </p>
+          )}
+
+          {/* Artifacts preview section */}
+          {result && (
+            <div className="space-y-3 pt-2 border-t border-[#DCE6DF]">
               {audioUrl && (
-                <button
-                  onClick={shareAudioFile}
-                  disabled={loadingFiles && !audioFile}
-                  title="Send Actual MP3 Audio Voice Note to WhatsApp"
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#1ebe5d] shadow-xs transition"
-                >
-                  <Music size={15} />
-                  <span>Send Audio File (.mp3) to WhatsApp</span>
-                </button>
+                <VoicePlayer src={audioUrl} script={scriptText} />
               )}
 
-              {/* Button 2: Send Actual PDF File */}
-              {pdfUrl && (
-                <button
-                  onClick={sharePdfFile}
-                  disabled={loadingFiles && !pdfFile}
-                  title="Send Actual PDF Document to WhatsApp"
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 shadow-xs transition"
-                >
-                  <FileText size={15} />
-                  <span>Send PDF Prescription to WhatsApp</span>
-                </button>
-              )}
-            </div>
-
-            {/* In-browser PDF preview iframe */}
-            {pdfUrl && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden mt-2">
-                <div className="flex w-full items-center justify-between px-3.5 py-2">
+              {/* Direct share sheet fallback triggers */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {audioUrl && (
                   <button
-                    onClick={() => setShowPdfEmbed(!showPdfEmbed)}
-                    className="flex items-center gap-1.5 text-xs font-bold text-slate-800 hover:text-teal-700 transition"
+                    type="button"
+                    onClick={shareAudioFile}
+                    disabled={loadingFiles && !audioFile}
+                    className="btn-secondary min-h-[44px] px-3 rounded-xl border border-[#DCE6DF] bg-[#F3F7F4] text-[#17211B] hover:bg-white flex items-center justify-center gap-1.5 font-medium"
                   >
-                    {showPdfEmbed ? <EyeOff size={14} className="text-teal-600" /> : <Eye size={14} className="text-teal-600" />}
-                    <span>{showPdfEmbed ? 'Close Prescription Preview' : 'Preview Prescription'}</span>
+                    <Music className="w-4 h-4 text-[#14633F]" />
+                    <span>Share voice note</span>
                   </button>
-                  <a
-                    href={pdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    download="prescription.pdf"
-                    className="flex items-center gap-1 text-[11px] font-bold text-teal-700 hover:underline"
+                )}
+
+                {pdfUrl && (
+                  <button
+                    type="button"
+                    onClick={sharePdfFile}
+                    disabled={loadingFiles && !pdfFile}
+                    className="btn-secondary min-h-[44px] px-3 rounded-xl border border-[#DCE6DF] bg-[#F3F7F4] text-[#17211B] hover:bg-white flex items-center justify-center gap-1.5 font-medium"
                   >
-                    <Download size={12} />
-                    <span>Download</span>
-                  </a>
-                </div>
-                {showPdfEmbed && (
-                  <div className="border-t border-slate-200 bg-white">
-                    <iframe src={pdfUrl} title="Prescription PDF" className="h-60 w-full" />
-                  </div>
+                    <FileText className="w-4 h-4 text-[#14633F]" />
+                    <span>Share PDF</span>
+                  </button>
                 )}
               </div>
-            )}
 
-          </div>
-        )}
+              {/* In-modal PDF Preview */}
+              {pdfUrl && (
+                <div className="border border-[#DCE6DF] rounded-xl overflow-hidden bg-[#F3F7F4]">
+                  <div className="flex items-center justify-between px-3 py-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setShowPdfEmbed(!showPdfEmbed)}
+                      className="btn-secondary min-h-[36px] px-2 rounded-lg flex items-center gap-1.5 font-medium text-[#17211B] hover:text-[#14633F]"
+                    >
+                      {showPdfEmbed ? (
+                        <EyeOff className="w-3.5 h-3.5 text-[#4A5D52]" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5 text-[#4A5D52]" />
+                      )}
+                      <span>{showPdfEmbed ? 'Hide prescription PDF' : 'Preview prescription PDF'}</span>
+                    </button>
+                    <a
+                      href={pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download="prescription.pdf"
+                      className="btn-secondary min-h-[36px] px-2.5 rounded-lg text-xs text-[#14633F] hover:bg-white flex items-center gap-1 font-medium"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download</span>
+                    </a>
+                  </div>
+                  {showPdfEmbed && (
+                    <div className="border-t border-[#DCE6DF] bg-white">
+                      <iframe src={pdfUrl} title="Prescription preview" className="w-full h-56" />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Sticky bottom "Send to patient" CTA */}
+        <div className="sticky bottom-0 bg-white border-t border-[#DCE6DF] p-4 pb-safe shrink-0 shadow-[0_-2px_10px_rgba(0,0,0,0.03)]">
+          <button
+            type="button"
+            onClick={handleDispatch}
+            disabled={!approved || !normalized || busy}
+            className="btn-primary w-full min-h-[48px] rounded-xl bg-[#14633F] text-white hover:bg-[#0D4A2F] text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : sentToast ? (
+              <Check className="w-4 h-4" />
+            ) : (
+              <WhatsAppIcon className="w-4 h-4 fill-white" />
+            )}
+            <span>{busy ? 'Preparing files…' : sentToast ? 'Sent' : 'Send to patient'}</span>
+          </button>
+        </div>
       </div>
     </div>
   )

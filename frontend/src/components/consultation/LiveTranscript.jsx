@@ -1,151 +1,181 @@
-import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, Cpu, Radio } from 'lucide-react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { AlertCircle, ArrowDown } from 'lucide-react'
 
 /**
- * LiveTranscript.jsx - Real-Time Ambient Speech Viewport (Light Clinical High-Contrast)
+ * LiveTranscript.jsx - Plain Conversational Transcript Viewport
+ * Strict Guardrail: Plain left-aligned conversational text, NO chat bubbles.
+ * Phase 2 Zero-Lag:
+ * - Direct subscription to useWebSocket interim stream (zero parent re-renders).
+ * - Instant un-animated interim text paint (no opacity transition delay).
+ * - Throttled requestAnimationFrame auto-scroll (no smooth scroll thrash).
  */
 
-// Visual status badges and color tokens mapped to WebSocket connection states
-const STATUS_LABEL = {
-  idle: { text: 'Ready', dot: 'bg-slate-400', badge: 'bg-slate-100 text-slate-800 border-slate-300' },
-  connecting: { text: 'Connecting…', dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-900 border-amber-300' },
-  connected: { text: 'Prisma Live', dot: 'bg-emerald-600', badge: 'bg-emerald-50 text-emerald-900 border-emerald-300' },
-  closed: { text: 'Offline', dot: 'bg-slate-400', badge: 'bg-slate-100 text-slate-800 border-slate-300' },
-  error: { text: 'Stream Error', dot: 'bg-rose-600', badge: 'bg-rose-50 text-rose-900 border-rose-300' },
-}
-
-// Live ambient speech transcript viewport with dual confirmed and interim text buffers
-export default function LiveTranscript({
+function LiveTranscript({
   lines = [],
   interim = '',
+  subscribeInterim,
   status = 'idle',
   error = '',
   isRecording = false,
-  latency = '~140ms',
 }) {
   const containerRef = useRef(null)
   const bottomRef = useRef(null)
-
+  const scrollRafRef = useRef(null)
   const [autoScrollLocked, setAutoScrollLocked] = useState(true)
+  const [streamInterim, setStreamInterim] = useState('')
 
-  const badge = STATUS_LABEL[status] || STATUS_LABEL.idle
+  // Direct subscription to interim tokens from useWebSocket (zero parent re-renders)
+  useEffect(() => {
+    if (!subscribeInterim) return
+    return subscribeInterim((text) => {
+      setStreamInterim(text || '')
+    })
+  }, [subscribeInterim])
 
-  // Detect when user manually scrolls up to pause auto-scrolling
+  // Pause sticky scroll when clinician scrolls up
   const handleScroll = () => {
     const el = containerRef.current
     if (!el) return
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    const isAtBottom = distanceFromBottom < 35
-    setAutoScrollLocked(isAtBottom)
+    setAutoScrollLocked(distanceFromBottom < 40)
   }
 
-  // Auto-scroll viewport to latest transcript line when locked to bottom
-  useEffect(() => {
-    if (autoScrollLocked) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  // Zero-thrash instant auto-scroll throttled by requestAnimationFrame
+  const scrollToBottom = useCallback(() => {
+    if (scrollRafRef.current) {
+      cancelAnimationFrame(scrollRafRef.current)
     }
-  }, [lines, interim, autoScrollLocked])
+    scrollRafRef.current = requestAnimationFrame(() => {
+      const el = containerRef.current
+      if (el) {
+        el.scrollTop = el.scrollHeight
+      }
+    })
+  }, [])
 
-  // Re-enable automatic scrolling and snap viewport to bottom
-  const resumeStickyScroll = () => {
-    setAutoScrollLocked(true)
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }
-
-  // Separate finalized transcript sentences from unconfirmed interim speech tokens
   const confirmedLines = lines.filter((l) => l.is_final !== false)
   const interimLines = lines.filter((l) => l.is_final === false)
-  const activeInterimText = interim || interimLines.map((l) => l.text).join(' ')
+  const currentInterim = subscribeInterim ? streamInterim : interim
+  const activeInterimText = currentInterim || interimLines.map((l) => l.text).join(' ')
+
+  // Auto-scroll when locked to bottom
+  useEffect(() => {
+    if (autoScrollLocked) {
+      scrollToBottom()
+    }
+  }, [lines, activeInterimText, autoScrollLocked, scrollToBottom])
+
+  // Clean up RAF on unmount
+  useEffect(() => () => {
+    if (scrollRafRef.current) {
+      cancelAnimationFrame(scrollRafRef.current)
+    }
+  }, [])
+
+  const resumeStickyScroll = () => {
+    setAutoScrollLocked(true)
+    const el = containerRef.current
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
+  }
+
+  const isConnected = status === 'connected'
 
   return (
-    <section className="relative flex h-88 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-      {/* Viewport header displaying status pill and latency indicator */}
-      <div className="mb-2.5 flex items-center justify-between border-b border-slate-100 pb-2.5">
+    <div className="relative flex flex-col flex-1 h-full min-h-0 bg-white">
+      {/* Top quiet transcript header */}
+      <div className="h-10 px-6 border-b border-[#DCE6DF] flex items-center justify-between text-xs text-[#4A5D52]">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-bold text-slate-900 tracking-tight">Live Transcript</h2>
-          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold ${badge.badge}`}>
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${badge.dot} ${status === 'connected' ? 'animate-pulse' : ''}`}
-            />
-            {badge.text}
+          <span
+            className={`w-2 h-2 rounded-full ${
+              isConnected ? 'bg-[#14633F]' : 'bg-[#DCE6DF]'
+            }`}
+          />
+          <span className="font-medium">
+            {isConnected ? 'Conversation live' : 'Consultation transcript'}
           </span>
         </div>
-
-        <span
-          className="flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-mono font-bold text-teal-800"
-          title="Gnani Prisma latency"
-        >
-          <Cpu size={11} className="text-teal-700" />
-          {latency}
-        </span>
       </div>
 
-      {/* Stream connection error banner */}
+      {/* Error alert banner */}
       {error && (
         <div
           role="alert"
-          className="mb-2.5 flex gap-1.5 rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs font-semibold text-rose-800"
+          className="mx-6 mt-3 flex items-center gap-2 p-2.5 rounded-lg bg-[#FEE2E2] border border-[#FECACA] text-[#B91C1C] text-xs font-medium"
         >
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-rose-600" /> {error}
+          <AlertCircle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* Scrollable conversation history viewport */}
+      {/* Main scrollable conversational text viewport */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 space-y-2 overflow-y-auto pr-1 text-xs"
+        className="flex-1 overflow-y-auto px-6 py-6 space-y-5 text-base"
         aria-live="polite"
       >
         {confirmedLines.length === 0 && !activeInterimText ? (
-          <div className="flex h-full flex-col items-center justify-center text-center text-slate-400">
-            <Radio size={20} className="mb-1.5 text-slate-300" />
-            <p className="text-xs font-medium">
-              {isRecording ? 'Listening… speak clearly.' : 'Click Start Recording to transcribe.'}
+          <div className="h-full flex flex-col justify-center items-start text-[#4A5D52] py-16">
+            <p className="text-base font-normal max-w-[75ch] text-[#4A5D52]">
+              {isRecording
+                ? 'Listening to consultation. Speak naturally with the patient.'
+                : 'Ready for consultation. Start speaking in Hindi, Tamil, Telugu, Bengali, or English.'}
             </p>
           </div>
         ) : (
-          <>
-            {/* Confirmed consultation sentences */}
-            {confirmedLines.map((l) => (
-              <div key={l.id} className="rounded-xl bg-slate-50 border border-slate-200/80 p-2.5 space-y-0.5">
-                {l.speaker && (
-                  <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wider">
-                    {l.speaker}
-                  </p>
-                )}
-                <p className="leading-relaxed text-slate-900 font-semibold">
-                  {l.text}
-                </p>
-              </div>
-            ))}
+          <div className="space-y-4 max-w-[75ch]">
+            {confirmedLines.map((line) => {
+              const speakerName = (line.speaker || 'Doctor').toLowerCase()
+              const isPatient = speakerName.includes('patient') || speakerName.includes('pt')
 
-            {/* Interim streaming speech tokens */}
+              return (
+                <div
+                  key={line.id}
+                  className={`space-y-1 ${
+                    isPatient ? 'pl-5 border-l-2 border-[#DCE6DF]' : ''
+                  }`}
+                >
+                  <div className="text-xs font-medium text-[#4A5D52]">
+                    {isPatient ? 'Patient' : 'Doctor'}
+                  </div>
+                  <p className="text-base text-[#17211B] leading-relaxed animate-word-appear">
+                    {line.text}
+                  </p>
+                </div>
+              )
+            })}
+
+            {/* Interim live speech stream (instant paint at full contrast without opacity delay) */}
             {activeInterimText && (
-              <div className="rounded-xl bg-teal-50 border border-teal-200 p-2.5 space-y-0.5">
-                <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wider">
-                  Listening…
-                </p>
-                <p className="inline-block leading-relaxed text-teal-950 font-mono font-bold">
+              <div className="space-y-1 pl-1">
+                <div className="text-xs font-medium text-[#14633F]">
+                  Speaking…
+                </div>
+                <p className="text-base text-[#4A5D52] italic leading-relaxed">
                   {activeInterimText}
-                  <span className="ml-1 inline-block h-3 w-1 bg-teal-600 animate-pulse align-middle" />
                 </p>
               </div>
             )}
-          </>
+          </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Floating button to resume sticky scrolling when user scrolled up */}
+      {/* Resume sticky scroll floating pill */}
       {!autoScrollLocked && (
         <button
+          type="button"
           onClick={resumeStickyScroll}
-          className="absolute bottom-3 right-5 flex items-center gap-1 rounded-full border border-teal-300 bg-white px-3 py-1 text-xs font-bold text-teal-800 shadow-md transition hover:bg-slate-50"
+          className="absolute bottom-4 right-6 min-h-[36px] px-3 rounded-full bg-white border border-[#DCE6DF] text-[#14633F] text-xs font-medium shadow-sm hover:bg-[#F3F7F4] flex items-center gap-1.5 transition-colors"
         >
-          <ArrowDown size={12} className="animate-bounce text-teal-600" /> Scroll to bottom
+          <ArrowDown className="w-3.5 h-3.5" strokeWidth={1.75} />
+          <span>Jump to recent</span>
         </button>
       )}
-    </section>
+    </div>
   )
 }
+
+export default memo(LiveTranscript)

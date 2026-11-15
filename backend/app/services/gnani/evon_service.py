@@ -14,7 +14,7 @@ from app.utils.drug_matcher import drug_matcher
 from app.utils.hinglish import devanagari_to_hinglish
 
 # Initialize logger for Evon clinical extraction service
-logger = logging.getLogger("dhanvantari.evon")
+logger = logging.getLogger("docscribe.evon")
 
 # Read Gemini API key from environment variables
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

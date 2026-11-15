@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Tuple, List
 
 # Initialize module logger
-logger = logging.getLogger("dhanvantari.storage_cleaner")
+logger = logging.getLogger("docscribe.storage_cleaner")
 
 # Utility class to manage storage retention via TTL pruning and LRU quota enforcement
 class StorageCleaner:

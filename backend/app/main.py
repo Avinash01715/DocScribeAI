@@ -1,6 +1,6 @@
 # backend/app/main.py
 """
-DhanvantariVoice API Gateway.
+DocScribeAI API Gateway.
 Coordinates ambient WebSocket PCM ingestion, clinical LLM parsing,
 FPDF2 prescription generation, and high-performance MP3 voice note streaming.
 Features an automated background storage lifecycle retention engine and
@@ -42,7 +42,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-logger = logging.getLogger("dhanvantari.main")
+logger = logging.getLogger("docscribe.main")
 
 # Register standard audio and document MIME types
 mimetypes.init()
@@ -175,7 +175,7 @@ async def lifespan(app: FastAPI):
     # Create required storage directories
     AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     PDF_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info(f"DhanvantariVoice storage volumes mounted at: {DATA_ROOT}")
+    logger.info(f"DocScribeAI storage volumes mounted at: {DATA_ROOT}")
 
     # Validate and warm up SQLite history repository
     history_repo._init_db()
@@ -210,12 +210,12 @@ async def lifespan(app: FastAPI):
         await daemon_task
     except asyncio.CancelledError:
         pass
-    logger.info("DhanvantariVoice storage retention daemon cleanly terminated.")
+    logger.info("DocScribeAI storage retention daemon cleanly terminated.")
 
 
 # Initialize FastAPI application instance with custom lifespan
 app = FastAPI(
-    title="DhanvantariVoice API",
+    title="DocScribeAI Backend",
     version="1.0.0",
     description="Ambient Clinical AI Copilot Backend",
     lifespan=lifespan
@@ -258,6 +258,6 @@ app.include_router(ws_router, tags=["WebSocket Ingestion"])
 def health_check():
     return {
         "status": "healthy",
-        "service": "DhanvantariVoice",
+        "service": "DocScribeAI",
         "version": "1.0.0"
     }
