@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Download, Eye, EyeOff, FileText, Loader2, Music, X } from 'lucide-react'
+import { Check, Download, Eye, EyeOff, FileText, Loader2, Share2, X } from 'lucide-react'
 import VoicePlayer from './VoicePlayer'
 
 /**
@@ -29,68 +29,46 @@ function normalizeIndianPhone(raw) {
   return ''
 }
 
-export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
+export default function WhatsAppModal({
+  open,
+  onClose,
+  approved,
+  onPrepare,
+  language = 'hi',
+  prescription = null,
+}) {
   const [phone, setPhone] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [showPdfEmbed, setShowPdfEmbed] = useState(false)
-  const [sentToast, setSentToast] = useState(false)
+  const [dispatched, setDispatched] = useState(false)
+  const [prevLanguage, setPrevLanguage] = useState(language)
 
-  const [audioFile, setAudioFile] = useState(null)
-  const [pdfFile, setPdfFile] = useState(null)
-  const [loadingFiles, setLoadingFiles] = useState(false)
+  // Clear stale generated result during render if selected language changes
+  if (prevLanguage !== language) {
+    setPrevLanguage(language)
+    setResult(null)
+    setDispatched(false)
+  }
 
   const audioUrl = result?.voice_note?.audio_url || result?.audio_url || null
   const pdfUrl = result?.pdf_receipt?.url || result?.pdf_url || null
   const scriptText = result?.voice_note?.script || result?.narrative_text || ''
+  const whatsappUrl = result?.whatsapp_deep_link || null
 
-  useEffect(() => {
-    if (!audioUrl && !pdfUrl) return
-    let cancelled = false
-
-    const fetchBlobs = async () => {
-      setLoadingFiles(true)
-      try {
-        if (audioUrl) {
-          const res = await fetch(audioUrl)
-          if (res.ok) {
-            const blob = await res.blob()
-            const file = new File([blob], 'prescription_voice_note.mp3', { type: 'audio/mpeg' })
-            if (!cancelled) setAudioFile(file)
-          }
-        }
-        if (pdfUrl) {
-          const res = await fetch(pdfUrl)
-          if (res.ok) {
-            const blob = await res.blob()
-            const file = new File([blob], 'prescription.pdf', { type: 'application/pdf' })
-            if (!cancelled) setPdfFile(file)
-          }
-        }
-      } catch (err) {
-        console.warn('[DocScribe] Pre-fetching media failed:', err)
-      } finally {
-        if (!cancelled) setLoadingFiles(false)
-      }
-    }
-
-    fetchBlobs()
-
-    return () => {
-      cancelled = true
-      setAudioFile(null)
-      setPdfFile(null)
-    }
-  }, [audioUrl, pdfUrl])
+  const handlePhoneChange = (val) => {
+    setPhone(val)
+    if (result) setResult(null)
+    if (dispatched) setDispatched(false)
+    if (error) setError('')
+  }
 
   const handleClose = () => {
     setError('')
     setResult(null)
     setShowPdfEmbed(false)
-    setSentToast(false)
-    setAudioFile(null)
-    setPdfFile(null)
+    setDispatched(false)
     onClose()
   }
 
@@ -105,67 +83,53 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
 
   const normalized = normalizeIndianPhone(phone)
 
-  // Primary Action: Send to patient
-  const handleDispatch = async () => {
+  // Stage 1 Action: Prepare artifacts (PDF, vernacular audio, wa.me link)
+  const handlePrepare = async () => {
+    if (!normalized || busy) return
     setBusy(true)
     setError('')
+    setDispatched(false)
     try {
       const data = await onPrepare(normalized)
       setResult(data)
-      setSentToast(true)
-      setTimeout(() => setSentToast(false), 3000)
     } catch (e) {
-      setError(e.message || 'Dispatch failed.')
+      setError(e.message || 'Preparation failed.')
     } finally {
       setBusy(false)
     }
   }
 
-  const shareAudioFile = async () => {
-    setError('')
-    if (audioFile && typeof navigator.canShare === 'function' && navigator.canShare({ files: [audioFile] })) {
-      try {
-        await navigator.share({
-          files: [audioFile],
-          title: 'Prescription voice note',
-        })
-        setSentToast(true)
-        setTimeout(() => setSentToast(false), 3000)
-        return
-      } catch (e) {
-        if (e.name === 'AbortError') return
-      }
-    }
-    if (audioUrl) {
-      const a = document.createElement('a')
-      a.href = audioUrl
-      a.download = 'prescription_voice_note.mp3'
-      a.target = '_blank'
-      a.click()
-    }
-  }
+  // Task 2: Universal Text + URL Web Share Fallback (100% iOS Safari & Android compatible)
+  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
-  const sharePdfFile = async () => {
+  const handleDeviceShare = async () => {
     setError('')
-    if (pdfFile && typeof navigator.canShare === 'function' && navigator.canShare({ files: [pdfFile] })) {
-      try {
-        await navigator.share({
-          files: [pdfFile],
-          title: 'Prescription PDF',
-        })
-        setSentToast(true)
-        setTimeout(() => setSentToast(false), 3000)
-        return
-      } catch (e) {
-        if (e.name === 'AbortError') return
+    if (!canNativeShare) return
+
+    const patientName = prescription?.patient_info?.name || result?.patient_name || 'Patient'
+    const diagnosis = prescription?.clinical_findings?.diagnosis || 'Clinical Assessment'
+
+    const lines = [
+      `🩺 DocScribeAI Prescription: ${patientName}`,
+      `Diagnosis: ${diagnosis}`,
+    ]
+    if (pdfUrl) lines.push(`📄 Prescription PDF: ${pdfUrl}`)
+    if (audioUrl) lines.push(`🔊 Voice Note: ${audioUrl}`)
+    if (scriptText) lines.push(`Instructions: ${scriptText}`)
+
+    const shareMessageText = lines.join('\n\n')
+
+    try {
+      await navigator.share({
+        title: `DocScribeAI Prescription - ${patientName}`,
+        text: shareMessageText,
+        url: pdfUrl || undefined,
+      })
+      setDispatched(true)
+    } catch (e) {
+      if (e?.name !== 'AbortError') {
+        console.warn('[DocScribe] Native share dismissed or failed:', e)
       }
-    }
-    if (pdfUrl) {
-      const a = document.createElement('a')
-      a.href = pdfUrl
-      a.download = 'prescription.pdf'
-      a.target = '_blank'
-      a.click()
     }
   }
 
@@ -218,7 +182,7 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
               <input
                 type="tel"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => handlePhoneChange(e.target.value)}
                 placeholder="9876543210"
                 className="w-full min-h-[44px] bg-white border border-[#DCE6DF] rounded-xl pl-11 pr-3 py-2 font-mono text-base sm:text-sm text-[#17211B] focus:border-[#14633F] outline-none"
               />
@@ -230,11 +194,18 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
             )}
           </label>
 
-          {/* Toast confirmation message */}
-          {sentToast && (
+          {/* Status feedback banners */}
+          {result && !dispatched && (
             <div className="p-2.5 rounded-lg bg-[#F3F7F4] border border-[#DCE6DF] text-xs text-[#14633F] font-semibold flex items-center justify-center gap-1.5">
               <Check className="w-4 h-4" />
-              <span>Prescription and voice instructions forwarded</span>
+              <span>Prescription & voice note ready</span>
+            </div>
+          )}
+
+          {dispatched && (
+            <div className="p-2.5 rounded-lg bg-[#F3F7F4] border border-[#DCE6DF] text-xs text-[#14633F] font-semibold flex items-center justify-center gap-1.5">
+              <Check className="w-4 h-4" />
+              <span>Prescription opened in WhatsApp — tap send in WhatsApp to deliver</span>
             </div>
           )}
 
@@ -251,30 +222,30 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
                 <VoicePlayer src={audioUrl} script={scriptText} />
               )}
 
-              {/* Direct share sheet fallback triggers */}
+              {/* Direct share sheet & download triggers */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {audioUrl && (
+                {canNativeShare && (
                   <button
                     type="button"
-                    onClick={shareAudioFile}
-                    disabled={loadingFiles && !audioFile}
-                    className="btn-secondary min-h-[44px] px-3 rounded-xl border border-[#DCE6DF] bg-[#F3F7F4] text-[#17211B] hover:bg-white flex items-center justify-center gap-1.5 font-medium"
+                    onClick={handleDeviceShare}
+                    className="btn-secondary min-h-[44px] px-3 rounded-xl border border-[#DCE6DF] bg-[#F3F7F4] text-[#17211B] hover:bg-white flex items-center justify-center gap-1.5 font-medium transition-colors"
                   >
-                    <Music className="w-4 h-4 text-[#14633F]" />
-                    <span>Share voice note</span>
+                    <Share2 className="w-4 h-4 text-[#14633F]" />
+                    <span>Share via device sheet</span>
                   </button>
                 )}
 
                 {pdfUrl && (
-                  <button
-                    type="button"
-                    onClick={sharePdfFile}
-                    disabled={loadingFiles && !pdfFile}
-                    className="btn-secondary min-h-[44px] px-3 rounded-xl border border-[#DCE6DF] bg-[#F3F7F4] text-[#17211B] hover:bg-white flex items-center justify-center gap-1.5 font-medium"
+                  <a
+                    href={pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download="prescription.pdf"
+                    className="btn-secondary min-h-[44px] px-3 rounded-xl border border-[#DCE6DF] bg-[#F3F7F4] text-[#17211B] hover:bg-white flex items-center justify-center gap-1.5 font-medium transition-colors"
                   >
                     <FileText className="w-4 h-4 text-[#14633F]" />
-                    <span>Share PDF</span>
-                  </button>
+                    <span>Download PDF</span>
+                  </a>
                 )}
               </div>
 
@@ -316,23 +287,39 @@ export default function WhatsAppModal({ open, onClose, approved, onPrepare }) {
           )}
         </div>
 
-        {/* Sticky bottom "Send to patient" CTA */}
+        {/* Sticky bottom CTA: Two-Stage Prepare & Launch */}
         <div className="sticky bottom-0 bg-white border-t border-[#DCE6DF] p-4 pb-safe shrink-0 shadow-[0_-2px_10px_rgba(0,0,0,0.03)]">
-          <button
-            type="button"
-            onClick={handleDispatch}
-            disabled={!approved || !normalized || busy}
-            className="btn-primary w-full min-h-[48px] rounded-xl bg-[#14633F] text-white hover:bg-[#0D4A2F] text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {busy ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : sentToast ? (
-              <Check className="w-4 h-4" />
-            ) : (
+          {!whatsappUrl ? (
+            <button
+              type="button"
+              onClick={handlePrepare}
+              disabled={!approved || !normalized || busy}
+              className="btn-primary w-full min-h-[48px] rounded-xl bg-[#14633F] text-white hover:bg-[#0D4A2F] text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {busy ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Preparing files…</span>
+                </>
+              ) : (
+                <>
+                  <WhatsAppIcon className="w-4 h-4 fill-white" />
+                  <span>Prepare prescription</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setDispatched(true)}
+              className="btn-primary w-full min-h-[48px] rounded-xl bg-[#14633F] text-white hover:bg-[#0D4A2F] text-sm font-semibold flex items-center justify-center gap-2 shadow-sm transition-all"
+            >
               <WhatsAppIcon className="w-4 h-4 fill-white" />
-            )}
-            <span>{busy ? 'Preparing files…' : sentToast ? 'Sent' : 'Send to patient'}</span>
-          </button>
+              <span>{dispatched ? 'Opened in WhatsApp (Send again)' : 'Send on WhatsApp'}</span>
+            </a>
+          )}
         </div>
       </div>
     </div>
