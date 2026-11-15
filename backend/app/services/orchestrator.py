@@ -31,7 +31,15 @@ from app.services.gnani.evon_service import evon_service
 logger = logging.getLogger("docscribe.orchestrator")
 
 # Server base URL for building absolute resource links
-SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://127.0.0.1:8000")
+def resolve_server_base_url(base_override: Optional[str] = None) -> str:
+    """Resolve base URL prioritizing explicit non-local env vars over localhost."""
+    if base_override:
+        return base_override.rstrip("/")
+    for env_key in ("PUBLIC_BASE_URL", "SERVER_BASE_URL"):
+        val = os.getenv(env_key, "").strip().rstrip("/")
+        if val and not any(local_host in val.lower() for local_host in ("localhost", "127.0.0.1", "0.0.0.0")):
+            return val
+    return os.getenv("SERVER_BASE_URL", "http://127.0.0.1:8000").strip().rstrip("/")
 
 
 # Normalize input phone numbers into 12-digit Indian format (91XXXXXXXXXX)
@@ -75,7 +83,7 @@ def build_whatsapp_narrative(request: ConsultationCompleteRequest) -> str:
 class ConsultationOrchestrator:
     # Initialize service with base application URL
     def __init__(self, base_url: Optional[str] = None):
-        self.base_url = (base_url or SERVER_BASE_URL).rstrip("/")
+        self.base_url = resolve_server_base_url(base_url)
 
     # Concurrently generate PDF prescription and vernacular audio note, then assemble WhatsApp response
     async def complete_consultation(
@@ -120,7 +128,7 @@ class ConsultationOrchestrator:
         if audio_url:
             message_body += f"\n\n*Awaaz Mein Suniye (Audio Note - MP3):*\n{audio_url}"
 
-        encoded_text = urllib.parse.quote(message_body)
+        encoded_text = urllib.parse.quote(message_body, safe="")
         phone_normalized = normalize_indian_phone(request.phone_number)
         wa_deep_link = f"https://wa.me/{phone_normalized}?text={encoded_text}"
 

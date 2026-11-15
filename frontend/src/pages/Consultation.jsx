@@ -126,6 +126,12 @@ export default function Consultation() {
     if (data.pdf_receipt?.url?.startsWith('/')) {
       data.pdf_receipt.url = `${API_BASE_URL}${data.pdf_receipt.url}`
     }
+    if (data.audio_url?.startsWith('/')) {
+      data.audio_url = `${API_BASE_URL}${data.audio_url}`
+    }
+    if (data.pdf_url?.startsWith('/')) {
+      data.pdf_url = `${API_BASE_URL}${data.pdf_url}`
+    }
 
     return data
   }
@@ -374,6 +380,8 @@ export default function Consultation() {
         onClose={() => setShareOpen(false)}
         approved={approved}
         onPrepare={handlePrepare}
+        language={selectedLanguage}
+        prescription={prescription}
       />
     </DashboardLayout>
   )

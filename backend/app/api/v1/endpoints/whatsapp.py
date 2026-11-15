@@ -1,6 +1,7 @@
 # backend/app/api/v1/endpoints/whatsapp.py
 import os
 import time
+import re 
 import asyncio
 import hashlib
 from pathlib import Path
@@ -9,6 +10,7 @@ import urllib.parse
 import logging
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field
+
 
 from app.schemas.prescription import PrescriptionExtractionResponse
 from app.services.gnani.timbre_service import (
@@ -64,13 +66,35 @@ class WhatsAppSendRequest(BaseModel):
 
 
 def get_server_base_url(request: Request) -> str:
-    """Resolve public base URL of the backend service."""
-    env_base = os.getenv("SERVER_BASE_URL", "").strip().rstrip("/")
-    if env_base:
-        return env_base
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.base_url.netloc
-    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
-    return f"{proto}://{host}"
+    """
+    Resolve public base URL of the backend service in strict priority order:
+    1. Explicit SERVER_BASE_URL / PUBLIC_BASE_URL environment variable
+       (if set and not containing 'localhost' or '127.0.0.1').
+    2. Reverse-proxy headers: X-Forwarded-Proto (defaulting to 'https' when
+       X-Forwarded-Host is present) + X-Forwarded-Host.
+    3. Host header: request.headers.get("host") with request.url.scheme.
+    4. Fallback to SERVER_BASE_URL ('http://127.0.0.1:8000') only for local development.
+    """
+    # 1. Explicit non-local environment variable
+    for env_key in ("PUBLIC_BASE_URL", "SERVER_BASE_URL"):
+        val = os.getenv(env_key, "").strip().rstrip("/")
+        if val and not any(local_host in val.lower() for local_host in ("localhost", "127.0.0.1", "0.0.0.0")):
+            return val
+
+    # 2. Reverse-proxy headers (Render, Railway, Cloudflare, Nginx)
+    forwarded_host = request.headers.get("x-forwarded-host")
+    if forwarded_host:
+        forwarded_proto = request.headers.get("x-forwarded-proto") or "https"
+        return f"{forwarded_proto}://{forwarded_host.strip()}"
+
+    # 3. Direct host header with request scheme
+    host = request.headers.get("host")
+    if host:
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+        return f"{proto}://{host.strip()}"
+
+    # 4. Fallback for local development
+    return os.getenv("SERVER_BASE_URL", "http://127.0.0.1:8000").strip().rstrip("/")
 
 
 # Endpoint to generate vernacular voice note, compile PDF, and construct WhatsApp wa.me link
@@ -217,7 +241,11 @@ async def dispatch_prescription(payload: WhatsAppSendRequest, request: Request, 
             full_text_message = "\n".join(text_lines)
 
             # 4. Clean phone number and generate wa.me universal deep link
-            encoded_text = urllib.parse.quote(full_text_message)
+            clean_phone = re.sub(r"\D", "", payload.phone_number)
+            if len(clean_phone) == 10:
+                clean_phone = f"91{clean_phone}"
+
+            encoded_text = urllib.parse.quote(full_text_message, safe="")
             wa_deep_link = f"https://wa.me/{clean_phone}?text={encoded_text}"
 
             # 5. Persist Consultation Record in SQLite (Append-Only History)
@@ -241,6 +269,8 @@ async def dispatch_prescription(payload: WhatsAppSendRequest, request: Request, 
                 "recipient": clean_phone,
                 "language": resolved_lang,
                 "whatsapp_deep_link": wa_deep_link,
+                "pdf_url": full_pdf_url,
+                "audio_url": full_audio_url,
                 "voice_note": {
                     "audio_url": full_audio_url,
                     "script": voice_note_result.get("script"),
