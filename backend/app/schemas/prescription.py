@@ -1,7 +1,34 @@
 # backend/app/schemas/prescription.py
 import re
-from typing import List, Optional
+from typing import List, Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# Structured clinical safety alert (DDI, duplicate salt, overdose, allergy)
+class ClinicalAlert(BaseModel):
+    """
+    Structured clinical safety alert model representing pharmacovigilance warnings:
+    Drug-Drug Interactions (DDI), Therapeutic Duplication (Duplicate Salts),
+    Cumulative Overdose, and Allergy Cross-Reactivity.
+    """
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    alert_type: Literal["DDI", "DUPLICATE_SALT", "CUMULATIVE_OVERDOSE", "ALLERGY"] = Field(
+        ..., description="Category of clinical safety alert"
+    )
+    severity: Literal["CRITICAL", "MAJOR", "MODERATE"] = Field(
+        ..., description="Clinical risk tier (CRITICAL, MAJOR, or MODERATE)"
+    )
+    title: str = Field(..., description="Short summary title of the safety alert")
+    description: str = Field(..., description="Actionable clinical explanation and hazard description")
+    involved_drugs: List[str] = Field(
+        default_factory=list, 
+        description="Prescribed medications triggering this safety alert"
+    )
+    can_override: bool = Field(
+        default=True, 
+        description="Whether alert permits physician clinical override"
+    )
 
 
 # Standardized medication schema with OPD normalization and formulary verification
@@ -37,7 +64,15 @@ class MedicationItem(BaseModel):
     )
     interaction_alerts: List[str] = Field(
         default_factory=list,
-        description="Clinical safety and drug-drug interaction alerts"
+        description="Clinical safety and drug-drug interaction alert strings (backward compatible)"
+    )
+    clinical_alerts: List[ClinicalAlert] = Field(
+        default_factory=list,
+        description="Structured pharmacovigilance alerts for DDIs, duplicate salts, overdose, and allergies"
+    )
+    override_acknowledged: bool = Field(
+        default=False,
+        description="Whether a clinician has explicitly acknowledged and overridden safety warnings"
     )
 
     # Normalize colloquial Hinglish/English phrases into standard OPD matrix notation (e.g. 1 - 1 - 1)
@@ -52,6 +87,10 @@ class MedicationItem(BaseModel):
             return "1 - 0 - 1"
 
         val = v.lower().strip()
+
+        # 4 times daily (QID / char baar)
+        if re.search(r"1\s*[-/,\s]\s*1\s*[-/,\s]\s*1\s*[-/,\s]\s*1", val) or "four times" in val or "char" in val or "qid" in val:
+            return "1 - 1 - 1 - 1"
 
         # 3 times daily (TDS / TID / teen baar)
         if re.search(r"1\s*[-/,\s]\s*1\s*[-/,\s]\s*1", val) or any(
@@ -94,7 +133,7 @@ class MedicationItem(BaseModel):
         return v.strip().title()
 
 
-# Patient demographics and symptom list extracted from audio
+# Patient demographics, symptom list, and known allergies extracted from audio
 class PatientInfo(BaseModel):
     """Demographic and symptom profile captured from consultation audio."""
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
@@ -103,6 +142,10 @@ class PatientInfo(BaseModel):
     chief_complaints: List[str] = Field(
         default_factory=list, 
         description="Symptom list extracted during consultation"
+    )
+    allergies: List[str] = Field(
+        default_factory=list,
+        description="Known patient drug allergies (e.g. 'Penicillin', 'Sulfa', 'NSAIDs')"
     )
 
     # Clean patient name by removing honorific titles (Mr, Shri, Dr, etc.)
@@ -139,4 +182,6 @@ class PrescriptionExtractionResponse(BaseModel):
         default=None, 
         description="Lifestyle, hydration, or dietary advice (e.g. gargling, parhez)"
     )
+
+
 ClinicalExtractionPayload = PrescriptionExtractionResponse

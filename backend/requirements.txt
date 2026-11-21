@@ -1,12 +1,17 @@
 # Core Web Framework & ASGI Server
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
+gunicorn>=23.0.0; sys_platform != 'win32'
 websockets>=13.0
+python-multipart>=0.0.12
 
 # Schema Validation & Settings Management (Pydantic V2 / OpenAPI 3.1)
 pydantic>=2.9.0
 pydantic-settings>=2.5.0
 python-dotenv>=1.0.1
+
+# Asynchronous Persistence (SQLite WAL Mode)
+aiosqlite>=0.20.0
 
 # HTTP Transport & Sovereign API Client (Gnani Stack)
 httpx>=0.27.2
@@ -14,14 +19,14 @@ httpx>=0.27.2
 # Clinical Entity Extraction & Normalization
 rapidfuzz>=3.10.0
 fpdf2>=2.8.1
-indic_transliteration>=2.3.82
+indic-transliteration>=2.3.82
 
 # Audio Ingestion & Transcoding Engine
 pydub>=0.25.1
 audioop-lts>=0.2.1; python_version >= '3.13'
 
 # Clinical LLM & Reasoning Engine (Gnani Evon Proxy)
-google-genai>=0.8.0
+google-genai>=2.0.0
 
 # Testing & Concurrency Validation Suite
 pytest>=8.3.0

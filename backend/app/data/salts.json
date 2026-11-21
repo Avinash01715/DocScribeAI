@@ -1,0 +1,664 @@
+{
+  "warfarin": {
+    "canonical_name": "Warfarin Tablet",
+    "active_ingredients": [
+      {
+        "salt": "warfarin",
+        "strength_mg": 5.0
+      }
+    ],
+    "drug_classes": [
+      "anticoagulant",
+      "vitamin_k_antagonist"
+    ]
+  },
+  "warfarin 5mg": {
+    "canonical_name": "Warfarin 5mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "warfarin",
+        "strength_mg": 5.0
+      }
+    ],
+    "drug_classes": [
+      "anticoagulant",
+      "vitamin_k_antagonist"
+    ]
+  },
+  "warfarin 2mg": {
+    "canonical_name": "Warfarin 2mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "warfarin",
+        "strength_mg": 2.0
+      }
+    ],
+    "drug_classes": [
+      "anticoagulant",
+      "vitamin_k_antagonist"
+    ]
+  },
+  "acenocoumarol": {
+    "canonical_name": "Acenocoumarol Tablet (Acitrom)",
+    "active_ingredients": [
+      {
+        "salt": "acenocoumarol",
+        "strength_mg": 2.0
+      }
+    ],
+    "drug_classes": [
+      "anticoagulant"
+    ]
+  },
+  "paracetamol 650mg tablet": {
+    "canonical_name": "Paracetamol 650mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "paracetamol",
+        "strength_mg": 650.0
+      }
+    ],
+    "drug_classes": [
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "dolo 650mg tablet": {
+    "canonical_name": "Dolo 650mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "paracetamol",
+        "strength_mg": 650.0
+      }
+    ],
+    "drug_classes": [
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "calpol 650mg tablet": {
+    "canonical_name": "Calpol 650mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "paracetamol",
+        "strength_mg": 650.0
+      }
+    ],
+    "drug_classes": [
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "crocin 650mg advance tablet": {
+    "canonical_name": "Crocin 650mg Advance Tablet",
+    "active_ingredients": [
+      {
+        "salt": "paracetamol",
+        "strength_mg": 650.0
+      }
+    ],
+    "drug_classes": [
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "paracetamol 500mg tablet": {
+    "canonical_name": "Paracetamol 500mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "paracetamol",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "calpol 500mg tablet": {
+    "canonical_name": "Calpol 500mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "paracetamol",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "crocin 500mg tablet": {
+    "canonical_name": "Crocin 500mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "paracetamol",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "ibuprofen 400mg tablet": {
+    "canonical_name": "Ibuprofen 400mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ibuprofen",
+        "strength_mg": 400.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "ibuprofen 200mg tablet": {
+    "canonical_name": "Ibuprofen 200mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ibuprofen",
+        "strength_mg": 200.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "combiflam tablet (ibuprofen 400mg + paracetamol 325mg)": {
+    "canonical_name": "Combiflam Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ibuprofen",
+        "strength_mg": 400.0
+      },
+      {
+        "salt": "paracetamol",
+        "strength_mg": 325.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "aceclofenac 100mg tablet": {
+    "canonical_name": "Aceclofenac 100mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "aceclofenac",
+        "strength_mg": 100.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "analgesic"
+    ]
+  },
+  "aceclofenac 100mg + paracetamol 325mg (zerodol-p tablet)": {
+    "canonical_name": "Zerodol-P Tablet",
+    "active_ingredients": [
+      {
+        "salt": "aceclofenac",
+        "strength_mg": 100.0
+      },
+      {
+        "salt": "paracetamol",
+        "strength_mg": 325.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "aceclofenac 100mg + paracetamol 325mg + serratiopeptidase 15mg (zerodol-sp tablet)": {
+    "canonical_name": "Zerodol-SP Tablet",
+    "active_ingredients": [
+      {
+        "salt": "aceclofenac",
+        "strength_mg": 100.0
+      },
+      {
+        "salt": "paracetamol",
+        "strength_mg": 325.0
+      },
+      {
+        "salt": "serratiopeptidase",
+        "strength_mg": 15.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "diclofenac sodium 50mg tablet": {
+    "canonical_name": "Diclofenac Sodium 50mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "diclofenac",
+        "strength_mg": 50.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "analgesic"
+    ]
+  },
+  "diclofenac 50mg + paracetamol 325mg (voveran plus tablet)": {
+    "canonical_name": "Voveran Plus Tablet",
+    "active_ingredients": [
+      {
+        "salt": "diclofenac",
+        "strength_mg": 50.0
+      },
+      {
+        "salt": "paracetamol",
+        "strength_mg": 325.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "analgesic",
+      "antipyretic"
+    ]
+  },
+  "aspirin 75mg gastro-resistant tablet (ecosprin 75)": {
+    "canonical_name": "Ecosprin 75 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "aspirin",
+        "strength_mg": 75.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "antiplatelet"
+    ]
+  },
+  "aspirin 150mg gastro-resistant tablet (ecosprin 150)": {
+    "canonical_name": "Ecosprin 150 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "aspirin",
+        "strength_mg": 150.0
+      }
+    ],
+    "drug_classes": [
+      "nsaid",
+      "antiplatelet"
+    ]
+  },
+  "amoxicillin 500mg capsule": {
+    "canonical_name": "Amoxicillin 500mg Capsule",
+    "active_ingredients": [
+      {
+        "salt": "amoxicillin",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "penicillin",
+      "beta_lactam_antibiotic"
+    ]
+  },
+  "amoxicillin 250mg capsule": {
+    "canonical_name": "Amoxicillin 250mg Capsule",
+    "active_ingredients": [
+      {
+        "salt": "amoxicillin",
+        "strength_mg": 250.0
+      }
+    ],
+    "drug_classes": [
+      "penicillin",
+      "beta_lactam_antibiotic"
+    ]
+  },
+  "amoxicillin and potassium clavulanate 625mg (augmentin 625 duo)": {
+    "canonical_name": "Augmentin 625 Duo Tablet",
+    "active_ingredients": [
+      {
+        "salt": "amoxicillin",
+        "strength_mg": 500.0
+      },
+      {
+        "salt": "clavulanic_acid",
+        "strength_mg": 125.0
+      }
+    ],
+    "drug_classes": [
+      "penicillin",
+      "beta_lactam_antibiotic"
+    ]
+  },
+  "amoxicillin 500mg + potassium clavulanate 125mg (moxikind-cv 625 tablet)": {
+    "canonical_name": "Moxikind-CV 625 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "amoxicillin",
+        "strength_mg": 500.0
+      },
+      {
+        "salt": "clavulanic_acid",
+        "strength_mg": 125.0
+      }
+    ],
+    "drug_classes": [
+      "penicillin",
+      "beta_lactam_antibiotic"
+    ]
+  },
+  "azithromycin 500mg tablet": {
+    "canonical_name": "Azithromycin 500mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "azithromycin",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "macrolide_antibiotic",
+      "qt_prolonging"
+    ]
+  },
+  "azithromycin 500mg (azithral 500mg tablet)": {
+    "canonical_name": "Azithral 500mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "azithromycin",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "macrolide_antibiotic",
+      "qt_prolonging"
+    ]
+  },
+  "azithromycin 250mg tablet (azithral 250)": {
+    "canonical_name": "Azithral 250mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "azithromycin",
+        "strength_mg": 250.0
+      }
+    ],
+    "drug_classes": [
+      "macrolide_antibiotic",
+      "qt_prolonging"
+    ]
+  },
+  "ondansetron 4mg tablet": {
+    "canonical_name": "Ondansetron 4mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ondansetron",
+        "strength_mg": 4.0
+      }
+    ],
+    "drug_classes": [
+      "antiemetic",
+      "qt_prolonging"
+    ]
+  },
+  "ondansetron 4mg (vomikind 4 tablet)": {
+    "canonical_name": "Vomikind 4 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ondansetron",
+        "strength_mg": 4.0
+      }
+    ],
+    "drug_classes": [
+      "antiemetic",
+      "qt_prolonging"
+    ]
+  },
+  "ondansetron 4mg (emset 4 tablet)": {
+    "canonical_name": "Emset 4 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ondansetron",
+        "strength_mg": 4.0
+      }
+    ],
+    "drug_classes": [
+      "antiemetic",
+      "qt_prolonging"
+    ]
+  },
+  "levofloxacin 500mg tablet (levomac 500)": {
+    "canonical_name": "Levomac 500 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "levofloxacin",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "fluoroquinolone",
+      "qt_prolonging"
+    ]
+  },
+  "clarithromycin 500mg tablet (claribid 500)": {
+    "canonical_name": "Claribid 500 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "clarithromycin",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "macrolide_antibiotic",
+      "qt_prolonging"
+    ]
+  },
+  "ciprofloxacin 500mg tablet (ciplox 500)": {
+    "canonical_name": "Ciplox 500 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ciprofloxacin",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "fluoroquinolone"
+    ]
+  },
+  "ciprofloxacin 250mg tablet": {
+    "canonical_name": "Ciprofloxacin 250mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ciprofloxacin",
+        "strength_mg": 250.0
+      }
+    ],
+    "drug_classes": [
+      "fluoroquinolone"
+    ]
+  },
+  "digene gel antacid suspension": {
+    "canonical_name": "Digene Gel Antacid Suspension",
+    "active_ingredients": [
+      {
+        "salt": "antacid",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "antacid"
+    ]
+  },
+  "gelusil mps antacid liquid": {
+    "canonical_name": "Gelusil MPS Antacid Liquid",
+    "active_ingredients": [
+      {
+        "salt": "antacid",
+        "strength_mg": 500.0
+      }
+    ],
+    "drug_classes": [
+      "antacid"
+    ]
+  },
+  "pantoprazole 40mg tablet": {
+    "canonical_name": "Pantoprazole 40mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "pantoprazole",
+        "strength_mg": 40.0
+      }
+    ],
+    "drug_classes": [
+      "ppi"
+    ]
+  },
+  "pan 40 tablet": {
+    "canonical_name": "Pan 40 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "pantoprazole",
+        "strength_mg": 40.0
+      }
+    ],
+    "drug_classes": [
+      "ppi"
+    ]
+  },
+  "pantocid 40 tablet": {
+    "canonical_name": "Pantocid 40 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "pantoprazole",
+        "strength_mg": 40.0
+      }
+    ],
+    "drug_classes": [
+      "ppi"
+    ]
+  },
+  "pantoprazole 40mg + domperidone 30mg sr (pan-d capsule)": {
+    "canonical_name": "Pan-D Capsule",
+    "active_ingredients": [
+      {
+        "salt": "pantoprazole",
+        "strength_mg": 40.0
+      },
+      {
+        "salt": "domperidone",
+        "strength_mg": 30.0
+      }
+    ],
+    "drug_classes": [
+      "ppi",
+      "prokinetic"
+    ]
+  },
+  "pantoprazole 40mg + domperidone 30mg sr (pantocid dsr capsule)": {
+    "canonical_name": "Pantocid DSR Capsule",
+    "active_ingredients": [
+      {
+        "salt": "pantoprazole",
+        "strength_mg": 40.0
+      },
+      {
+        "salt": "domperidone",
+        "strength_mg": 30.0
+      }
+    ],
+    "drug_classes": [
+      "ppi",
+      "prokinetic"
+    ]
+  },
+  "telmisartan 40mg tablet": {
+    "canonical_name": "Telmisartan 40mg Tablet",
+    "active_ingredients": [
+      {
+        "salt": "telmisartan",
+        "strength_mg": 40.0
+      }
+    ],
+    "drug_classes": [
+      "arb",
+      "antihypertensive"
+    ]
+  },
+  "telmisartan 40mg (telma 40 tablet)": {
+    "canonical_name": "Telma 40 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "telmisartan",
+        "strength_mg": 40.0
+      }
+    ],
+    "drug_classes": [
+      "arb",
+      "antihypertensive"
+    ]
+  },
+  "spironolactone 25mg tablet (aldactone 25)": {
+    "canonical_name": "Aldactone 25 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "spironolactone",
+        "strength_mg": 25.0
+      }
+    ],
+    "drug_classes": [
+      "potassium_sparing_diuretic",
+      "diuretic"
+    ]
+  },
+  "ramipril 5mg tablet (cardace 5)": {
+    "canonical_name": "Cardace 5 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "ramipril",
+        "strength_mg": 5.0
+      }
+    ],
+    "drug_classes": [
+      "ace_inhibitor",
+      "antihypertensive"
+    ]
+  },
+  "enalapril 5mg tablet (envas 5)": {
+    "canonical_name": "Envas 5 Tablet",
+    "active_ingredients": [
+      {
+        "salt": "enalapril",
+        "strength_mg": 5.0
+      }
+    ],
+    "drug_classes": [
+      "ace_inhibitor",
+      "antihypertensive"
+    ]
+  },
+  "trimethoprim 160mg + sulfamethoxazole 800mg (bactrim ds tablet)": {
+    "canonical_name": "Bactrim DS Tablet",
+    "active_ingredients": [
+      {
+        "salt": "trimethoprim",
+        "strength_mg": 160.0
+      },
+      {
+        "salt": "sulfamethoxazole",
+        "strength_mg": 800.0
+      }
+    ],
+    "drug_classes": [
+      "sulfonamide",
+      "antibiotic"
+    ]
+  }
+}

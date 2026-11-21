@@ -11,6 +11,7 @@ from google.genai import types
 
 from app.schemas.prescription import PrescriptionExtractionResponse
 from app.utils.drug_matcher import drug_matcher
+from app.utils.safety_checker import safety_checker
 from app.utils.hinglish import devanagari_to_hinglish
 
 # Initialize logger for Evon clinical extraction service
@@ -23,7 +24,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 CLINICAL_EXTRACTION_PROMPT = """
 You are an expert Clinical AI Scribe operating in a high-volume Indian Outpatient Department (OPD).
 Analyze the doctor-patient consultation transcript (which may be in code-mixed Hinglish/English) and extract:
-1. Patient name and chief clinical complaints.
+1. Patient name, chief clinical complaints, and any documented or stated drug/substance allergies (e.g., Penicillin, Sulfa, NSAIDs).
 2. Clinical provisional diagnosis.
 3. Structured prescription items (drug name, dosage, frequency, timing relative to meals, duration).
 4. General medical/dietary advice.
@@ -85,8 +86,11 @@ class EvonClinicalService:
                 item.confidence_score = match_res["confidence_score"]
                 item.requires_review = match_res["requires_review"]
 
-            # Evaluate clinical safety and pairwise DDI rules
-            drug_matcher.validate_prescription_safety(parsed_data.prescription)
+            # Evaluate clinical safety, duplicate salts, cumulative doses, DDIs, and allergies
+            safety_checker.evaluate_prescription(
+                parsed_data.prescription,
+                parsed_data.patient_info.allergies
+            )
 
             return parsed_data
 
@@ -183,8 +187,8 @@ class EvonClinicalService:
                 "requires_review": match_res["requires_review"]
             })
 
-        # Evaluate clinical safety and pairwise DDI rules
-        drug_matcher.validate_prescription_safety(verified_prescription)
+        # Evaluate clinical safety, duplicate salts, cumulative doses, DDIs, and allergies
+        safety_checker.evaluate_prescription(verified_prescription, [])
 
         return PrescriptionExtractionResponse.model_validate({
             "patient_info": {

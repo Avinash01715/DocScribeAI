@@ -1,3 +1,4 @@
+import { useRef, useCallback } from 'react'
 import { Plus, Check, ShieldCheck } from 'lucide-react'
 import MedicineCard from './MedicineCard'
 import { missingFields, evaluateClinicalSafety } from '../../utils/prescription'
@@ -14,6 +15,12 @@ const paperInputCls =
 const toLines = (arr) => (arr || []).join('\n')
 const fromLines = (text) => text.split('\n')
 
+const rawApiUrl = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').trim()
+const API_BASE_URL = rawApiUrl
+  .replace(/\/+$/, '')
+  .replace(/\/api\/v1\/?$/, '')
+  .replace(/\/api\/?$/, '')
+
 export default function PrescriptionReview({
   data,
   onChange,
@@ -21,6 +28,8 @@ export default function PrescriptionReview({
   onApprove,
   onSendWhatsApp,
 }) {
+  const validateTimeoutRef = useRef(null)
+
   const temperature =
     data.patient_info?.temperature ||
     data.patient_info?.vitals?.temperature ||
@@ -29,28 +38,126 @@ export default function PrescriptionReview({
   const setPatient = (patch) =>
     onChange({ ...data, patient_info: { ...data.patient_info, ...patch } })
 
-  const setMedicine = (uid, key, value) => {
+  // Reactive asynchronous backend validation to corroborate client-side safety evaluation
+  const validateWithBackend = useCallback((medList) => {
+    if (!medList || medList.length === 0) return
+
+    if (validateTimeoutRef.current) {
+      clearTimeout(validateTimeoutRef.current)
+    }
+
+    validateTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/prescription/validate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prescription: medList,
+            allergies: data.patient_info?.allergies || [],
+          }),
+        })
+
+        if (!res.ok) return
+        const body = await res.json()
+        if (!body.prescription) return
+
+        const backendItems = body.prescription
+        const merged = medList.map((localItem, idx) => {
+          const remote = backendItems[idx]
+          if (!remote) return localItem
+          return {
+            ...localItem,
+            verified_match: remote.verified_match ?? localItem.verified_match,
+            confidence_score: remote.confidence_score ?? localItem.confidence_score,
+            clinical_alerts: remote.clinical_alerts ?? localItem.clinical_alerts,
+            interaction_alerts: remote.interaction_alerts ?? localItem.interaction_alerts,
+            safety_status: remote.safety_status ?? localItem.safety_status,
+            requires_review: localItem.override_acknowledged
+              ? false
+              : (remote.requires_review ?? localItem.requires_review),
+          }
+        })
+
+        onChange({
+          ...data,
+          prescription: merged,
+          safety_status: body.safety_status,
+        })
+      } catch (err) {
+        console.debug('Reactive backend validation error or offline:', err)
+      }
+    }, 250)
+  }, [data, onChange])
+
+  const setMedicine = (uid, keyOrPatch, value) => {
     const updated = data.prescription.map((m) => {
       if (m.uid !== uid) return m
-      const next = { ...m, [key]: value }
-      if (key === 'drug_name') {
+      if (typeof keyOrPatch === 'object' && keyOrPatch !== null) {
+        return { ...m, ...keyOrPatch }
+      }
+      const next = { ...m, [keyOrPatch]: value }
+      if (keyOrPatch === 'drug_name') {
         next.verified_match = null
         next.confidence_score = 100
+        next.requires_review = true
+        next.override_acknowledged = false
       }
       return next
     })
+    const evaluated = evaluateClinicalSafety(updated, data.patient_info?.allergies)
     onChange({
       ...data,
-      prescription: evaluateClinicalSafety(updated),
+      prescription: evaluated,
     })
+    validateWithBackend(evaluated)
+  }
+
+  const confirmMedicine = (uid, patch = {}) => {
+    const updated = data.prescription.map((m) => {
+      if (m.uid !== uid) return m
+      const currentDrugName = (patch.drug_name ?? m.drug_name ?? '').trim()
+      return {
+        ...m,
+        ...patch,
+        drug_name: currentDrugName,
+        verified_match: patch.verified_match || m.verified_match || currentDrugName,
+        confidence_score: 100,
+        requires_review: false,
+      }
+    })
+    const evaluated = evaluateClinicalSafety(updated, data.patient_info?.allergies)
+    onChange({
+      ...data,
+      prescription: evaluated,
+    })
+    validateWithBackend(evaluated)
+  }
+
+  const handleToggleOverride = (uid, state = true) => {
+    const updated = data.prescription.map((m) => {
+      if (m.uid !== uid) return m
+      return {
+        ...m,
+        override_acknowledged: state,
+        requires_review: !state ? (m.requires_review || (m.confidence_score ?? 100) < 80) : false,
+      }
+    })
+    const evaluated = evaluateClinicalSafety(updated, data.patient_info?.allergies)
+    onChange({
+      ...data,
+      prescription: evaluated,
+    })
+    validateWithBackend(evaluated)
   }
 
   const removeMedicine = (uid) => {
     const filtered = data.prescription.filter((m) => m.uid !== uid)
+    const evaluated = evaluateClinicalSafety(filtered, data.patient_info?.allergies)
     onChange({
       ...data,
-      prescription: evaluateClinicalSafety(filtered),
+      prescription: evaluated,
     })
+    validateWithBackend(evaluated)
   }
 
   const addMedicine = () => {
@@ -65,21 +172,32 @@ export default function PrescriptionReview({
         duration: '5 days',
         verified_match: null,
         confidence_score: 100,
-        requires_review: false,
+        requires_review: true,
+        override_acknowledged: false,
         safety_status: 'Verified Safe',
         interaction_alerts: [],
+        clinical_alerts: [],
       },
     ]
+    const evaluated = evaluateClinicalSafety(nextList, data.patient_info?.allergies)
     onChange({
       ...data,
-      prescription: evaluateClinicalSafety(nextList),
+      prescription: evaluated,
     })
+    validateWithBackend(evaluated)
   }
 
   const missing = data.prescription.flatMap((m) => missingFields(m))
-  const pendingReview = data.prescription.filter(
-    (m) => m.requires_review || (m.confidence_score ?? 100) < 75
-  ).length
+  const pendingReview = data.prescription.filter((m) => {
+    const hasUnoverriddenAlerts =
+      ((m.clinical_alerts?.length > 0) || (m.interaction_alerts?.length > 0)) &&
+      !m.override_acknowledged
+    const needsFormularyReview =
+      Boolean(m.requires_review && !m.override_acknowledged) ||
+      ((m.confidence_score ?? 100) < 80 && !m.override_acknowledged)
+    return hasUnoverriddenAlerts || needsFormularyReview
+  }).length
+
   const canApprove =
     data.prescription.length > 0 && missing.length === 0 && pendingReview === 0
 
@@ -209,6 +327,8 @@ export default function PrescriptionReview({
                   med={med}
                   onChange={setMedicine}
                   onRemove={removeMedicine}
+                  onConfirm={confirmMedicine}
+                  onToggleOverride={handleToggleOverride}
                 />
               ))
             )}
@@ -241,7 +361,7 @@ export default function PrescriptionReview({
           ) : !canApprove ? (
             <p className="text-xs text-[#B45309] text-center font-medium">
               {pendingReview > 0
-                ? `${pendingReview} medicine match needs confirmation.`
+                ? `${pendingReview} medicine item${pendingReview > 1 ? 's need' : ' needs'} confirmation or alert override.`
                 : 'Complete required medicine fields before sending.'}
             </p>
           ) : null}
