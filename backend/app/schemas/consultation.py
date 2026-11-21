@@ -1,6 +1,8 @@
 # backend/app/schemas/consultation.py
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from app.schemas.prescription import ClinicalAlert
+
 
 # Schema representing an individual prescribed medication item
 class MedicationItem(BaseModel):
@@ -12,17 +14,25 @@ class MedicationItem(BaseModel):
     verified_match: Optional[str] = None
     confidence_score: Optional[float] = None
     requires_review: Optional[bool] = False
+    safety_status: Optional[str] = "Verified Safe"
+    interaction_alerts: List[str] = Field(default_factory=list)
+    clinical_alerts: List[ClinicalAlert] = Field(default_factory=list)
+    override_acknowledged: bool = False
 
-# Schema representing patient demographics and symptoms
+
+# Schema representing patient demographics, symptoms, and known allergies
 class PatientInfo(BaseModel):
     name: str = Field(..., description="Patient's full name")
     age: Optional[str] = None
     gender: Optional[str] = None
     chief_complaints: List[str] = Field(default_factory=list)
+    allergies: List[str] = Field(default_factory=list)
+
 
 # Schema representing clinical provisional diagnosis
 class ClinicalFindings(BaseModel):
     diagnosis: str = Field(..., description="Primary clinical diagnosis")
+
 
 # Inbound request payload for finalizing a consultation
 class ConsultationCompleteRequest(BaseModel):
@@ -35,6 +45,7 @@ class ConsultationCompleteRequest(BaseModel):
         default="hi",
         description="ISO 639-1 / BCP 47 language code for synthesized patient voice instructions"
     )
+
 
 # Outbound response payload containing generated PDF, audio, and WhatsApp link
 class ConsultationCompleteResponse(BaseModel):
